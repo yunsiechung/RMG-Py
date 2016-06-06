@@ -67,7 +67,7 @@ class Species(rmgpy.species.Species):
     solventViscosity = None
     diffusionTemp = None
 
-    def __init__(self, index=-1, label='', thermo=None, conformer=None, 
+    def __init__(self, index=-1, label='', thermo=None, conformer=None,
                  molecule=None, transportData=None, molecularWeight=None, 
                  energyTransferModel=None, reactive=True, props=None, coreSizeAtCreation=0):
         rmgpy.species.Species.__init__(self, index, label, thermo, conformer, molecule, transportData, molecularWeight, energyTransferModel, reactive, props)
@@ -140,12 +140,13 @@ class Species(rmgpy.species.Species):
 
         # Add on solvation correction
         if Species.solventData and not "Liquid thermo library" in thermo0.comment:
-            #logging.info("Making solvent correction for {0}".format(Species.solventName))
-            soluteData = database.solvation.getSoluteData(self)
-            solvation_correction = database.solvation.getSolvationCorrection(soluteData, Species.solventData)
-            # correction is added to the entropy and enthalpy
-            wilhoit.S0.value_si = (wilhoit.S0.value_si + solvation_correction.entropy)
-            wilhoit.H0.value_si = (wilhoit.H0.value_si + solvation_correction.enthalpy)
+            if self.label is not Species.solventName:
+                logging.info("Making solvent correction for {0}".format(self.label))
+                soluteData = database.solvation.getSoluteData(self)
+                solvation_correction = database.solvation.getSolvationCorrection(soluteData, Species.solventData)
+                # correction is added to the entropy and enthalpy
+                wilhoit.S0.value_si = (wilhoit.S0.value_si + solvation_correction.entropy)
+                wilhoit.H0.value_si = (wilhoit.H0.value_si + solvation_correction.enthalpy)
             
         # Compute E0 by extrapolation to 0 K
         if self.conformer is None:
