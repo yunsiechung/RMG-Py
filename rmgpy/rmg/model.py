@@ -64,12 +64,13 @@ from pdep import PDepReaction, PDepNetwork
 class Species(rmgpy.species.Species):
     solventName = None
     solventData = None
+    solventStructure = None
     solventViscosity = None
     diffusionTemp = None
 
     def __init__(self, index=-1, label='', thermo=None, conformer=None,
                  molecule=None, transportData=None, molecularWeight=None, 
-                 energyTransferModel=None, reactive=True, props=None, coreSizeAtCreation=0):
+                 energyTransferModel=None, reactive=True, props=None, coreSizeAtCreation=0, solvent=False):
         rmgpy.species.Species.__init__(self, index, label, thermo, conformer, molecule, transportData, molecularWeight, energyTransferModel, reactive, props)
         self.coreSizeAtCreation = coreSizeAtCreation
 
@@ -147,7 +148,9 @@ class Species(rmgpy.species.Species):
                 # correction is added to the entropy and enthalpy
                 wilhoit.S0.value_si = (wilhoit.S0.value_si + solvation_correction.entropy)
                 wilhoit.H0.value_si = (wilhoit.H0.value_si + solvation_correction.enthalpy)
-            
+            # else:
+                # add different Thermo correction for solvent
+
         # Compute E0 by extrapolation to 0 K
         if self.conformer is None:
             self.conformer = Conformer()

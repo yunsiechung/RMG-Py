@@ -32,7 +32,8 @@ def runThermoEstimator(inputFile):
     if rmg.solvent:
         Species.solventData = rmg.database.solvation.getSolventData(rmg.solvent)
         Species.solventName = rmg.solvent
-        
+        Species.solventStructure = rmg.database.solvation.getSolventStucture(rmg.solvent)
+
     # Generate the thermo for all the species and write them to chemkin format as well as
     # ThermoLibrary format with values for H, S, and Cp's.
     output = open(os.path.join(rmg.outputDirectory, 'output.txt'),'wb')

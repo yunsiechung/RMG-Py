@@ -35,6 +35,7 @@
 import os.path
 import math
 import logging
+from rmgpy.species import Species
 from copy import deepcopy
 from base import Database, Entry, makeLogicNode, DatabaseError
 
@@ -45,7 +46,7 @@ from rmgpy.molecule import Molecule, Atom, Bond, Group, atomTypes
 def saveEntry(f, entry):
     """
     Write a Pythonic string representation of the given `entry` in the solvation
-    database to the file object `f`.
+    database to the file object `f`.sol
     """
     f.write('entry(\n')
     f.write('    index = {0:d},\n'.format(entry.index))
@@ -190,7 +191,17 @@ class SolvationCorrection():
         self.enthalpy = enthalpy
         self.entropy = entropy
         self.gibbs = gibbs
-            
+
+class SolventCorrection():
+    """
+    Stores corrections for enthalpy, entropy, and Gibbs free energy when a solvent species is solvated.
+    Enthalpy and Gibbs free energy is in J/mol; entropy is in J/mol/K
+    """
+    def __init__(self, enthalpy=None, gibbs=None, entropy=None):
+        self.enthalpy = enthalpy
+        self.entropy = entropy
+        self.gibbs = gibbs
+
 class SoluteData():
     """
     Stores Abraham parameters to characterize a solute
@@ -268,15 +279,27 @@ class SolventLibrary(Database):
     def loadEntry(self,
                   index,
                   label,
+                  molecule,
                   solvent,
                   reference=None,
                   referenceType='',
                   shortDesc='',
                   longDesc='',
                   ):
+        try:
+            mol = Species().fromSMILES(molecule)
+        except:
+            try:
+                mol = Species().fromAdjacencyList(molecule)
+            except:
+                logging.error("Can't understand '{0}' in solute library '{1}'".format(molecule,self.name))
+                raise
+        mol.generateResonanceIsomers()
+
         self.entries[label] = Entry(
             index = index,
             label = label,
+            item = mol,
             data = solvent,
             reference = reference,
             referenceType = referenceType,
@@ -301,8 +324,13 @@ class SolventLibrary(Database):
         Get a solvent's data from its name
         """
         return self.entries[label].data
-        
-        
+
+    def getSolventStucture(self, label):
+        """
+        Get a solvent's molecular structure from its name
+        """
+        return self.entries[label].item
+
 class SoluteLibrary(Database):
     """
     A class for working with a RMG solute library. Not currently used.
@@ -476,8 +504,14 @@ class SolvationDatabase(object):
         except:
             raise DatabaseError('Solvent {0!r} not found in database'.format(solvent_name))
         return solventData
-        
-        
+
+    def getSolventStucture(self, solvent_name):
+        try:
+            solventStructure = self.libraries['solvent'].getSolventStucture(solvent_name)
+        except:
+            raise DatabaseError('Solvent {0!r} not found in database'.format(solvent_name))
+        return solventStructure
+
     def loadGroups(self, path):
         """
         Load the solute database from the given `path` on disk, where `path`
