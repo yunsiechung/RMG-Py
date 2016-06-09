@@ -283,7 +283,7 @@ class SolventLibrary(Database):
             try:
                 mol = Species().fromSMILES(molecule)
             except:
-                logging.debug("Solvent '{0}' does have a valid SMILES '{1}'" .format(label, molecule))
+                logging.debug("Solvent '{0}' does not have a valid SMILES '{1}'" .format(label, molecule))
                 try:
                     mol = Species().fromAdjacencyList(molecule)
                 except:
