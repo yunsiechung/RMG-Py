@@ -220,26 +220,25 @@ multiplicity 2
         self.assertTrue(rmg.initialSpecies[0].isSolvent)
 
     def testSolventMolecule(self):
-        " Test we can give a proper value for the solvent molecule structure when different solvent databases are given "
+        " Test we can give a proper value for the solvent molecular structure when different solvent databases are given "
 
         # solventlibrary.entries['solvent_label'].item should be the instance of Species with the solvent's molecular structure
         # if the solvent database contains the solvent SMILES or adjacency list. If not, then item is None
 
-        # Case 1: When the solventDatabase does not contain the solvent SMILES, the item attribute contains None
+        # Case 1: When the solventDatabase does not contain the solvent SMILES, the item attribute is None
         solventlibrary = SolventLibrary()
         solventlibrary.loadEntry(index=1, label='water', solvent=None)
         self.assertTrue(solventlibrary.entries['water'].item is None)
 
         # Case 2: When the solventDatabase contains the correct solvent SMILES, the item attribute is the instance of
-        # the species with the correct solvent molecular structure
+        # Species with the correct solvent molecular structure
         solventlibrary.loadEntry(index=2, label='octane', solvent=None, molecule='CCCCCCCC')
         solventSpecies = Species().fromSMILES('C(CCCCC)CC')
         self.assertTrue(solventSpecies.isIsomorphic(solventlibrary.entries['octane'].item))
 
         # Case 3: When the solventDatabase contains the correct solvent adjacency list, the item attribute is the instance of
         # the species with the correct solvent molecular structure.
-        # This will display the SMILES Parse Error message from the external but ignore it.
-
+        # This will display the SMILES Parse Error message from the external function, but ignore it.
         solventlibrary.loadEntry(index=3, label='ethanol', solvent=None, molecule=
 """
 1 C u0 p0 c0 {2,S} {4,S} {5,S} {6,S}
@@ -255,8 +254,8 @@ multiplicity 2
         solventSpecies = Species().fromSMILES('CCO')
         self.assertTrue(solventSpecies.isIsomorphic(solventlibrary.entries['ethanol'].item))
 
-        # Case 4: when the solventDatabase contains incorrect values for the molecule attricute, it raises Exception
-        # This will display the SMILES Parse Error message from the external but ignore it.
+        # Case 4: when the solventDatabase contains incorrect values for the molecule attribute, it raises Exception
+        # This will display the SMILES Parse Error message from the external function, but ignore it.
         self.assertRaises(Exception, solventlibrary.loadEntry, index=4, label='benzene', solvent=None, molecule='ring')
 
 #####################################################
