@@ -69,6 +69,8 @@ class Species(rmgpy.species.Species):
     solventStructure = None
     solventViscosity = None
     isSolvent = False # returns True if the species is the solvent and False if not
+    isSolventinCoolProp = None # returns True if the solvent's data is available in CoolProp and False if not
+    SolventNameinCoolProp = None # returns the solvent's string name that can be used in CoolProp. If the solvent is unavailble in CoolProp, it's None
     diffusionTemp = None
 
     def __init__(self, index=-1, label='', thermo=None, conformer=None, 

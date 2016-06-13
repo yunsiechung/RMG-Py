@@ -377,6 +377,8 @@ class RMG(util.Subject):
             Species.solventData = self.database.solvation.getSolventData(self.solvent)
             Species.solventName = self.solvent
             Species.solventStructure = self.database.solvation.getSolventStructure(self.solvent)
+            Species.isSolventinCoolProp = self.database.solvation.isSolventinCoolProp(self.solvent)
+            Species.SolventNameinCoolProp = self.database.solvation.getSolventNameinCoolProp(self.solvent)
             diffusionLimiter.enable(Species.solventData, self.database.solvation)
             logging.info("Setting solvent data for {0}".format(self.solvent))
     

@@ -273,6 +273,8 @@ class SolventLibrary(Database):
                   label,
                   solvent,
                   molecule=None,
+                  inCoolProp=None,
+                  NameinCoolProp=None,
                   reference=None,
                   referenceType='',
                   shortDesc='',
@@ -296,6 +298,8 @@ class SolventLibrary(Database):
             label = label,
             item = spc,
             data = solvent,
+            inCoolProp = inCoolProp,
+            NameinCoolProp = NameinCoolProp,
             reference = reference,
             referenceType = referenceType,
             shortDesc = shortDesc,
@@ -325,6 +329,18 @@ class SolventLibrary(Database):
         Get a solvent's molecular structure as SMILES or adjacency list from its name
         """
         return self.entries[label].item
+
+    def isSolventinCoolProp(self, label):
+        """
+        Check whether the solvent data is available in CoolProp. Gives "True" if it is available, and "False" otherwise
+        """
+        return self.entries[label].inCoolProp
+
+    def getSolventNameinCoolProp(self, label):
+        """
+        Get the solvent's string name that can be used in CoolProp
+        """
+        return self.entries[label].NameinCoolProp
         
 class SoluteLibrary(Database):
     """
@@ -507,7 +523,21 @@ class SolvationDatabase(object):
         except:
             raise DatabaseError('Solvent {0!r} not found in database'.format(solvent_name))
         return solventStructure
-        
+
+    def isSolventinCoolProp(self, solvent_name):
+        try:
+            isSolventinCoolProp = self.libraries['solvent'].isSolventinCoolProp(solvent_name)
+        except:
+            raise DatabaseError('Solvent {0!r} not found in database'.format(solvent_name))
+        return isSolventinCoolProp
+
+    def getSolventNameinCoolProp(self, solvent_name):
+        try:
+            SolventNameinCoolProp = self.libraries['solvent'].getSolventNameinCoolProp(solvent_name)
+        except:
+            raise DatabaseError('Solvent {0!r} not found in database'.format(solvent_name))
+        return SolventNameinCoolProp
+
     def loadGroups(self, path):
         """
         Load the solute database from the given `path` on disk, where `path`
