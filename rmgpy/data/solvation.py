@@ -101,6 +101,8 @@ def saveEntry(f, entry):
         f.write('        alpha = {0!r},\n'.format(entry.data.alpha))
         f.write('        beta = {0!r},\n'.format(entry.data.beta))
         f.write('        eps = {0!r},\n'.format(entry.data.eps))
+        f.write('        inCoolProp = {0!r},\n'.format(entry.data.inCoolProp))
+        f.write('        NameinCoolProp = "{0}",\n'.format(entry.data.NameinCoolProp))
         f.write('    ),\n')
     elif entry.data is None:
         f.write('    solute = None,\n')
@@ -144,7 +146,7 @@ class SolventData():
     """
     def __init__(self, s_h=None, b_h=None, e_h=None, l_h=None, a_h=None,
     c_h=None, s_g=None, b_g=None, e_g=None, l_g=None, a_g=None, c_g=None, A=None, B=None, 
-    C=None, D=None, E=None, alpha=None, beta=None, eps=None):
+    C=None, D=None, E=None, alpha=None, beta=None, eps=None, inCoolProp=None, NameinCoolProp=None):
         self.s_h = s_h
         self.b_h = b_h
         self.e_h = e_h
@@ -168,6 +170,9 @@ class SolventData():
         self.beta = beta
         # This is the dielectric constant
         self.eps = eps
+        # This describes the availability of the solvent in CoolProp and its name in CoolProp
+        self.inCoolProp = inCoolProp
+        self.NameinCoolProp = NameinCoolProp
     
     def getHAbsCorrection(self):
         """
@@ -273,8 +278,6 @@ class SolventLibrary(Database):
                   label,
                   solvent,
                   molecule=None,
-                  inCoolProp=None,
-                  NameinCoolProp=None,
                   reference=None,
                   referenceType='',
                   shortDesc='',
@@ -298,8 +301,6 @@ class SolventLibrary(Database):
             label = label,
             item = spc,
             data = solvent,
-            inCoolProp = inCoolProp,
-            NameinCoolProp = NameinCoolProp,
             reference = reference,
             referenceType = referenceType,
             shortDesc = shortDesc,
@@ -334,13 +335,13 @@ class SolventLibrary(Database):
         """
         Check whether the solvent data is available in CoolProp. Gives "True" if it is available, and "False" otherwise
         """
-        return self.entries[label].inCoolProp
+        return self.entries[label].data.inCoolProp
 
     def getSolventNameinCoolProp(self, label):
         """
         Get the solvent's string name that can be used in CoolProp
         """
-        return self.entries[label].NameinCoolProp
+        return self.entries[label].data.NameinCoolProp
         
 class SoluteLibrary(Database):
     """
