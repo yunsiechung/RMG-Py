@@ -35,10 +35,13 @@
 import os.path
 import math
 import logging
+import numpy
 import rmgpy.constants as constants
 from rmgpy.species import Species
 from copy import deepcopy
 from base import Database, Entry, makeLogicNode, DatabaseError
+from CoolProp.CoolProp import PropsSI
+from rmgpy.thermo.wilhoit import Wilhoit
 
 from rmgpy.molecule import Molecule, Atom, Bond, Group, atomTypes
 
@@ -956,7 +959,54 @@ class SolvationDatabase(object):
         correction.entropy = self.calcS(correction.gibbs, correction.enthalpy) 
         return correction
 
-    def checkSolventinInitialSpecies(self,rmg,solventStructure):
+    def calcSolventH298(self, solventNameinCoolProp, H298_gas):
+        """
+        Given the standard enthalpy of formation of the solvent species in gas phase and its name in CoolProp,
+        it returns the standard enthalpy of formation of the solvent species in liquid phase in J/mol
+        """
+        T_b = PropsSI('T', 'P', 101325, 'Q', 0, solventNameinCoolProp) # solvent's boiling temp. at P = 1 atm. In CoolProp, 'P' (pressure) is in Pa, and 'Q' (phase) is 0 for liquid and 1 for gas.
+        dH_ref = PropsSI('Hmolar', 'T', T_b, 'Q', 1, solventNameinCoolProp) - H298_gas # the difference in the reference enthalpies used for CoolProp and RMG thermo (enthalypy of the elements in standard states = 0)
+        H298_liquid = PropsSI('Hmolar', 'T', 298, 'P', 101325, solventNameinCoolProp) - dH_ref # the standard enthalpy of formation of the solvent species in liquid phase, J/mol
+        return H298_liquid
+
+    def calcSolventS298(self, solventNameinCoolProp, S298_gas):
+        """
+        Given the standard entropy of the solvent species in gas phase and its name in CoolProp,
+        it returns the standard entropy of the solvent species in liquid phase in J/mol/K
+        """
+        T_b = PropsSI('T', 'P', 101325, 'Q', 0, solventNameinCoolProp) # solvent's boiling temp. in K at P = 1 atm. In CoolProp, 'P' (pressure) is in Pa, and 'Q' (phase) is 0 for liquid and 1 for gas.
+        dS_ref = PropsSI('Smolar', 'T', T_b, 'Q', 1, solventNameinCoolProp) - S298_gas # the difference in the reference entropies used for CoolProp and RMG thermo (entropy of the elements in standard states = 0)
+        S298_liquid = PropsSI('Smolar', 'T', 298, 'P', 101325, solventNameinCoolProp) - dS_ref # the standard entropy of the solvent species in liquid phase, J/mol/K
+        return S298_liquid
+
+    def getSolventThermo(self, species, wilhoit_gas):
+        """
+        Given the instances of Species class and Wilhoit class for the solvent molecule in a gas phase,
+        it returns the thermo data for the solvent species as an instance of Wilhoit class by using CoolProp.
+        """
+        solventNameinCoolProp = species.SolventNameinCoolProp # solvent's CoolProp name
+        H298_gas = wilhoit_gas.getEnthalpy(298) # standard enthalpy of formation of the solvent species in gas phase, J/mol
+        S298_gas = wilhoit_gas.getEntropy(298) # standard enthalpy of the solvent species in gas phase, J/mol/K
+        H298_liquid = self.calcSolventH298(solventNameinCoolProp, H298_gas) # standard enthalpy of formation of the solvent species in liquid phase, J/mol
+        S298_liquid = self.calcSolventS298(solventNameinCoolProp, S298_gas) # standard enthalpy of the solvent species in liquid phase, J/mol/K
+        Cp0 = wilhoit_gas.Cp0.value_si # the heat capacity at zero temperature in J/mol/K
+        CpInf = wilhoit_gas.CpInf.value_si # the heat capacity at infinite temperature in J/mol/K
+
+        # get the Cp data for the solvent in liquid phase using CoolProp
+        T_c = PropsSI('T_critical', solventNameinCoolProp) # critical temperature of the solvent in K
+        Tdata = numpy.linspace(298., T_c-50., 100, True) # only use the temp. up to T_c - 50K for fitting the data because Cp starts diverge near T_c and using those points make the fitting inaccurate
+        Cpdata = numpy.zeros_like(Tdata)
+        for i in range(Tdata.shape[0]):
+            Cpdata[i] = PropsSI('Cpmolar', 'T', Tdata[i], 'Q', 0, solventNameinCoolProp)
+
+        # use the Cpdata to fit the wilhoit model for the solvent's liquid Thermo
+        wilhoit_liquid = Wilhoit().fitToData(Tdata, Cpdata, Cp0, CpInf, H298_liquid, S298_liquid)
+        wilhoit_liquid.Tmin = (200., 'K')
+        wilhoit_liquid.Tmax = (T_c, 'K') # max temperature is the critical temperature of the solvent
+
+        return wilhoit_liquid
+
+    def checkSolventinInitialSpecies(self, rmg, solventStructure):
         """
         Given the instance of RMG class and the solventStructure, it checks whether the solvent is listed as one
         of the initial species.
