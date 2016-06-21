@@ -148,6 +148,7 @@ class Species(rmgpy.species.Species):
         if Species.solventData and not "Liquid thermo library" in thermo0.comment:
             if self.isSolvent: # different corrections are applied for the solvent species
                 if self.isSolventinCoolProp:
+                    logging.info("Found {0} in CoolProp: Making solvent correction for {0}".format(Species.solventName))
                     wilhoit = database.solvation.getSolventThermo(self, wilhoit)
             else:
                 #logging.info("Making solvent correction for {0}".format(Species.solventName))

@@ -10,6 +10,8 @@ from rmgpy.molecule import Molecule
 from rmgpy.rmg.main import Species
 from rmgpy.data.solvation import DatabaseError, SoluteData, SolvationDatabase, SolventLibrary, SolventData
 from rmgpy.rmg.main import RMG
+from rmgpy.thermo.wilhoit import Wilhoit
+from rmgpy.thermo import ThermoData
 
 ###################################################
 
@@ -284,6 +286,59 @@ multiplicity 2
         solventlibrary.loadEntry(index=3, label='hexadecane', solvent=solventdata)
         self.assertFalse(solventlibrary.entries['hexadecane'].data.inCoolProp)
         self.assertTrue(solventlibrary.entries['hexadecane'].data.NameinCoolProp is None)
+
+    def testSolvent_H298_S98(self):
+        " Test we can calculate the solvent's standard enthalpy of formation and standard entropy given the solvent's CoolProp name and gas Thermo"
+
+        # generate the gas phase wilhoit for water
+        thermoData = ThermoData(Tdata = ([300,400,500,600,800,1000,1500],'K'),
+                                Cpdata = ([8.038,8.18,8.379,8.624,9.195,9.766,11.019],'cal/(mol*K)'),
+                                H298 = (-57.797,'kcal/mol'), S298 = (45.084,'cal/(mol*K)'),)
+        spc = Species().fromSMILES('O')
+        Cp0 = spc.calculateCp0()
+        CpInf = spc.calculateCpInf()
+        Tdata = thermoData.Tdata.value_si
+        Cpdata = thermoData._Cpdata.value_si
+        H298 = thermoData._H298.value_si
+        S298 = thermoData._S298.value_si
+        wilhoit_gas = Wilhoit().fitToData(Tdata, Cpdata, Cp0, CpInf, H298, S298)
+
+        solventNameinCoolProp = 'water'
+        H298_liquid = self.database.calcSolventH298(solventNameinCoolProp, wilhoit_gas) # in J/mol
+        self.assertAlmostEqual(H298_liquid / 1000., -285.8, 0) # -285.8 kJ/mol is the standard formation enthalpy of liquid water. Obtained from NIST
+
+        S298_liquid = self.database.calcSolventS298(solventNameinCoolProp, wilhoit_gas) # in J/mol/K
+        self.assertAlmostEqual(S298_liquid, 69.95, 0) # 69.95 J/mol/K is the standard entropy of liquid water. Obtained from NIST
+
+    def testSolventThermo(self):
+        " Test we can get the correct Wilhoit model for the solvent species"
+
+        # generate the gas phase wilhoit for water
+        thermoData = ThermoData(Tdata = ([300,400,500,600,800,1000,1500],'K'),
+                                Cpdata = ([8.038,8.18,8.379,8.624,9.195,9.766,11.019],'cal/(mol*K)'),
+                                H298 = (-57.797,'kcal/mol'), S298 = (45.084,'cal/(mol*K)'),)
+        spc = Species().fromSMILES('O')
+        spc.SolventNameinCoolProp = 'water'
+        Cp0 = spc.calculateCp0()
+        CpInf = spc.calculateCpInf()
+        Tdata = thermoData.Tdata.value_si
+        Cpdata = thermoData._Cpdata.value_si
+        H298 = thermoData._H298.value_si
+        S298 = thermoData._S298.value_si
+        wilhoit_gas = Wilhoit().fitToData(Tdata, Cpdata, Cp0, CpInf, H298, S298)
+
+        wilhoit_liquid = self.database.getSolventThermo(spc, wilhoit_gas)
+
+        # validation data set. Obtained by adjusting the base enthalpy, entropy, and free energy of the CoolProp values
+        T_val =  [300., 400., 500.] # K
+        H_val = [-285.3, -277.8, -269.8] # kJ/mol
+        S_val = [70.8, 92.6, 110.2] # J/mol/K
+        G_val = [-306.6, -314.8, -324.9] # kJ/mol
+
+        for i in range(len(T_val)):
+            self.assertAlmostEqual(wilhoit_liquid.getEnthalpy(T_val[i]) / 1000., H_val[i], 0)
+            self.assertAlmostEqual(wilhoit_liquid.getEntropy(T_val[i]), S_val[i], 0)
+            self.assertAlmostEqual(wilhoit_liquid.getFreeEnergy(T_val[i]) / 1000., G_val[i], 0)
 #####################################################
 
 if __name__ == '__main__':
