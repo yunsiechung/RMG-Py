@@ -34,6 +34,7 @@ This script contains unit tests of the :mod:`rmgpy.thermo.nasa` module.
 
 import unittest
 import numpy
+from math import log
 
 from rmgpy.thermo.nasa import NASA, NASAPolynomial
 import rmgpy.constants as constants
@@ -231,3 +232,20 @@ class TestNASA(unittest.TestCase):
         # NasaPoly2 units use J/kmol rather than J/mol
         self.assertAlmostEqual(self.nasa.getEnthalpy(900), nasapoly2.h(900)/1000, 1)
         self.assertAlmostEqual(self.nasa.getEntropy(700), nasapoly2.s(700)/1000, 1)
+
+    def test_fitToFreeEnergyData(self):
+        """
+        Test that it can fit the NASA model to the free energy data provided
+        """
+
+        Tlist = numpy.array([298.15, 336.92, 375.69, 414.47, 453.24, 492.01, 530.78, 569.56, 608.22]) # in K
+        dGsolv = numpy.array([6382.9, 7515.4, 8065.6, 8099.0, 7813.4, 7150.7, 6073.0, 4447.4, 1909.4]) # solvation free energy of O2 in water in J/mol
+        T_min = 200.
+        T_max = 647.
+
+        # fit to the NASA based on the dG values provided
+        nasa_solvation = NASA().fitToFreeEnergyData(Tlist, dGsolv, T_min, T_max)
+        dGsolv_nasafit = [nasa_solvation.getFreeEnergy(T) for T in Tlist] # in J/mol
+        # check that the fitted one is accurate up to 0.1 kJ/mol
+        for i in range(Tlist.shape[0]):
+            self.assertAlmostEqual(dGsolv[i] / 1000., dGsolv_nasafit[i] / 1000., 1)
