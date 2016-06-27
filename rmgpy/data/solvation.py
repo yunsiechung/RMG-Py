@@ -937,14 +937,14 @@ class SolvationDatabase(object):
         # Use Abraham parameters for solvents to get log K
         logK = (soluteData.S*solventData.s_g)+(soluteData.B*solventData.b_g)+(soluteData.E*solventData.e_g)+(soluteData.L*solventData.l_g)+(soluteData.A*solventData.a_g)+solventData.c_g
         # Convert to delG with units of J/mol
-        delG = -8.314*298*2.303*logK
+        delG = -constants.R*298.*math.log(10.)*logK
         return delG
         
     def calcS(self, delG, delH):
         """
         Returns the entropy of solvation, at 298K, in J/mol/K
         """
-        delS = (delH-delG)/298
+        delS = (delH-delG)/298.
         return delS
     
     def getSolvationCorrection(self, soluteData, solventData):
