@@ -339,6 +339,31 @@ multiplicity 2
             self.assertAlmostEqual(wilhoit_liquid.getEnthalpy(T_val[i]) / 1000., H_val[i], 0)
             self.assertAlmostEqual(wilhoit_liquid.getEntropy(T_val[i]), S_val[i], 0)
             self.assertAlmostEqual(wilhoit_liquid.getFreeEnergy(T_val[i]) / 1000., G_val[i], 0)
+
+    def testSoluteKfactors(self):
+        " Test we can get correct coefficients for the solute's K-factor formula"
+
+        # Test O2 in water
+        spc = Species().fromSMILES('[O][O]')
+        spc.SolventNameinCoolProp = 'water'
+        spc.solventData = self.database.getSolventData('water')
+        soluteData = self.database.getSoluteData(spc)
+        Kfactor = self.database.getSoluteKfactorCoefficients(spc, soluteData)
+        self.assertAlmostEqual(Kfactor.linear, 0.1092, 3)
+        self.assertAlmostEqual(Kfactor.quadratic[0] * 1e5, -2.6737, 3)
+        self.assertAlmostEqual(Kfactor.quadratic[1], 1.9835, 3)
+        self.assertAlmostEqual(Kfactor.quadratic[2] * 1e-4, -3.2835, 3)
+
+        # Test methane in water
+        spc = Species().fromSMILES('C')
+        spc.SolventNameinCoolProp = 'water'
+        spc.solventData = self.database.getSolventData('water')
+        soluteData = self.database.getSoluteData(spc)
+        Kfactor = self.database.getSoluteKfactorCoefficients(spc, soluteData)
+        self.assertAlmostEqual(Kfactor.linear, 0.1130, 3)
+        self.assertAlmostEqual(Kfactor.quadratic[0] * 1e5, -3.8270, 3)
+        self.assertAlmostEqual(Kfactor.quadratic[1], 2.7953, 3)
+        self.assertAlmostEqual(Kfactor.quadratic[2] * 1e-4, -4.7000, 3)
 #####################################################
 
 if __name__ == '__main__':
