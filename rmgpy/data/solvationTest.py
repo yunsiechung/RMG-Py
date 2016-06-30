@@ -364,6 +364,33 @@ multiplicity 2
         self.assertAlmostEqual(Kfactor.quadratic[0] * 1e5, -3.8270, 3)
         self.assertAlmostEqual(Kfactor.quadratic[1], 2.7953, 3)
         self.assertAlmostEqual(Kfactor.quadratic[2] * 1e-4, -4.7000, 3)
+
+    def testSoluteThermo(self):
+        " test we can get the correct Wilhoit model for the solute thermo with the solvation correction"
+
+        # Test O2 in water
+        # Generating the gas phase wilhoit for O2
+        thermoData = ThermoData(Tdata = ([300,400,500,600,800,1000,1500],'K'),
+                                Cpdata = ([7.0233, 7.1986, 7.4285, 7.6673, 8.0656, 8.3363, 8.7407],'cal/(mol*K)'),
+                                H298 = (-0.0010244,'kcal/mol'), S298 = (49.0236,'cal/(mol*K)'),)
+        spc = Species().fromSMILES('[O][O]')
+        Cp0 = spc.calculateCp0()
+        CpInf = spc.calculateCpInf()
+        Tdata = thermoData.Tdata.value_si
+        Cpdata = thermoData._Cpdata.value_si
+        H298 = thermoData._H298.value_si
+        S298 = thermoData._S298.value_si
+        wilhoit_gas = Wilhoit().fitToData(Tdata, Cpdata, Cp0, CpInf, H298, S298)
+        # Get the solute's Wilhoit including the solvation correction
+        spc.SolventNameinCoolProp = 'water'
+        spc.solventData = self.database.getSolventData('water')
+        soluteData = self.database.getSoluteData(spc)
+        wilhoit_solute = self.database.getSoluteThermo(spc, soluteData, wilhoit_gas)
+        # Validation Sets
+        T_val = [298., 350., 400., 450., 500., 550., 600.] # in K
+        dGsolute_val = [-54.5, -63.3, -73.0, -84.3, -96.5, -109.1, -123.2] # in kJ/mol
+        for i in range(len(T_val)):
+            self.assertAlmostEqual(wilhoit_solute.getFreeEnergy(T_val[i]) / 1000., dGsolute_val[i], 1)
 #####################################################
 
 if __name__ == '__main__':

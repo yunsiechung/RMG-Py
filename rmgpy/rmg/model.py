@@ -146,18 +146,34 @@ class Species(rmgpy.species.Species):
 
         # Add on solvation correction
         if Species.solventData and not "Liquid thermo library" in thermo0.comment:
-            if self.isSolvent: # different corrections are applied for the solvent species
-                if self.isSolventinCoolProp:
-                    logging.info("Found {0} in CoolProp: Making solvent correction for {0}".format(Species.solventName))
+            """
+            soluteData = database.solvation.getSoluteData(self)
+            solvation_correction = database.solvation.getSolvationCorrection(soluteData, Species.solventData)
+            # correction is added to the entropy and enthalpy
+            wilhoit.S0.value_si = (wilhoit.S0.value_si + solvation_correction.entropy)
+            wilhoit.H0.value_si = (wilhoit.H0.value_si + solvation_correction.enthalpy)
+            """
+            if self.isSolventinCoolProp: # if the solvent can be found in CoolProp, more accurate solvation correction can be applied
+                if self.isSolvent: # solvent species
                     wilhoit = database.solvation.getSolventThermo(self, wilhoit)
-            else:
-                #logging.info("Making solvent correction for {0}".format(Species.solventName))
+                else: # solute species
+
+                    soluteData = database.solvation.getSoluteData(self)
+                    wilhoit = database.solvation.getSoluteThermo(self, soluteData, wilhoit)
+                    '''
+                    soluteData = database.solvation.getSoluteData(self)
+                    solvation_correction = database.solvation.getSolvationCorrection(soluteData, Species.solventData)
+                    # correction is added to the entropy and enthalpy
+                    wilhoit.S0.value_si = (wilhoit.S0.value_si + solvation_correction.entropy)
+                    wilhoit.H0.value_si = (wilhoit.H0.value_si + solvation_correction.enthalpy)
+                    '''
+            else: # if the solvent cannot be found in CoolProp, less accurate solvation correction is made
                 soluteData = database.solvation.getSoluteData(self)
                 solvation_correction = database.solvation.getSolvationCorrection(soluteData, Species.solventData)
                 # correction is added to the entropy and enthalpy
                 wilhoit.S0.value_si = (wilhoit.S0.value_si + solvation_correction.entropy)
                 wilhoit.H0.value_si = (wilhoit.H0.value_si + solvation_correction.enthalpy)
-            
+
         # Compute E0 by extrapolation to 0 K
         if self.conformer is None:
             self.conformer = Conformer()

@@ -381,8 +381,11 @@ class RMG(util.Subject):
             Species.SolventNameinCoolProp = self.database.solvation.getSolventNameinCoolProp(self.solvent)
             diffusionLimiter.enable(Species.solventData, self.database.solvation)
             logging.info("Setting solvent data for {0}".format(self.solvent))
-    
-        # Set wall time
+            if Species.isSolventinCoolProp:
+                logging.info("Found {0} in CoolProp: More accurate temperature dependence is used for solvation free energy".format(self.solvent))
+            else:
+                logging.info("{0} cannot be found in CoolProp: Linear temperature dependence is assumed for solvation free energy".format(self.solvent))
+                logging.info("Caution: Solvation thermo correction could be inaccurate for temperature far from 298 K ( T > 400 K )")
         try:
             walltime = kwargs['walltime']
         except KeyError:

@@ -42,6 +42,8 @@ from copy import deepcopy
 from base import Database, Entry, makeLogicNode, DatabaseError
 from CoolProp.CoolProp import PropsSI
 from rmgpy.thermo.wilhoit import Wilhoit
+from rmgpy.thermo.nasa import NASA
+import rmgpy.quantity as quantity
 
 from rmgpy.molecule import Molecule, Atom, Bond, Group, atomTypes
 
@@ -1020,8 +1022,8 @@ class SolvationDatabase(object):
 
         # use the Cpdata to fit the wilhoit model for the solvent's liquid Thermo
         wilhoit_liquid = Wilhoit().fitToData(Tdata, Cpdata, Cp0, CpInf, H298_liquid, S298_liquid)
-        wilhoit_liquid.Tmin = (200., 'K')
-        wilhoit_liquid.Tmax = (T_c, 'K') # max temperature is the critical temperature of the solvent
+        wilhoit_liquid.Tmin = quantity.ScalarQuantity(200., 'K' )
+        wilhoit_liquid.Tmax = quantity.ScalarQuantity(T_c, 'K') # max temperature is the critical temperature of the solvent
 
         return wilhoit_liquid
 
@@ -1101,6 +1103,54 @@ class SolvationDatabase(object):
         coefficients.T_transition = T_transition
 
         return coefficients
+
+    def getSoluteThermo(self, species, soluteData, wilhoit_gas):
+        """
+        Given the instances of Species, SoluteData, and Wilhoit (gas phase thermo) for the solute,
+        it applies the solvation correction and returns the corrected thermo as a Wilhoit instance.
+        """
+
+        # From the K-factor coefficients, calculate the K-factor at various temperatures between 298 K and the critical
+        # temperature of the solvent.
+        # If T < T_transition, the 2nd order polynomial of Tln(K-factor) vs. drho is used.
+        # If T > = T_transition, the linear equation is used
+        KfactorCoeff = self.getSoluteKfactorCoefficients(species, soluteData)
+        solventName = species.SolventNameinCoolProp
+        T_c = PropsSI('T_critical', solventName) # critical temperature of the solvent, in K
+        rho_c = PropsSI('rhomolar_critical', solventName) # the critical molar density of the solvent, in mol/m^3
+        T_list = numpy.linspace(298., T_c, 100, True) #generating a list of temperatures at which the solvation free energy will be evaluated
+        rho_list = [PropsSI('Dmolar', 'T', T, 'Q', 0, solventName) for T in T_list] # molar density of the solvent, in mol/m^3
+        drho_list = [rho - rho_c for rho in rho_list] # rho - rho_c, in mol/m^3
+        Pvap_list = [PropsSI('P', 'T', T, 'Q', 0, solventName) for T in T_list] # vapor pressure of the solvent, in Pa
+        Kfactor_list = numpy.zeros_like(T_list)
+        for i in range(T_list.shape[0]):
+            if T_list[i] < KfactorCoeff.T_transition:
+                Kfactor_list[i] = math.exp((KfactorCoeff.quadratic[0] * (drho_list[i] ** 2.)
+                                  + KfactorCoeff.quadratic[1] * drho_list[i] + KfactorCoeff.quadratic[2]) / T_list[i])
+            elif T_list[i] == T_c:
+                Kfactor_list[i] = 1.
+            else:
+                Kfactor_list[i] = math.exp(KfactorCoeff.linear * drho_list[i] / T_list[i])
+
+        # Calculate the solvation free energies from K-factor list. The formula is:
+        # dGsolv(T) = R * T * ln( K-factor(T) * Pvap(T) / (R * T * rho(T)) )
+        # The solvation free energy is evaluated at the saturation curve, so it is only a function of temperature.
+        dGsolv_list = [constants.R * T_list[i] * math.log(Kfactor_list[i] * Pvap_list[i] / (constants.R * T_list[i] * rho_list[i]))
+                       for i in range(T_list.shape[0])] # in J/mol
+
+        # Apply the solvation correction on the gas phase free energy and fit the NASA model to the corrected free energy list
+        dGgas_list = [wilhoit_gas.getFreeEnergy(T) for T in T_list] # in J/mol
+        dGsolute_list = [dGgas_list[i] + dGsolv_list[i] for i in range(T_list.shape[0])] # dGsolte = dGgas + dGsolv, in J/mol
+        nasa_solute = NASA().fitToFreeEnergyData(T_list, numpy.asarray(dGsolute_list), 298., T_c) # retunrs the NASA instance for the solute species
+
+        # Convert NASA to Wilhoit. The gas phase Cp0 and CpInf are used
+        Cp0 = species.calculateCp0()
+        CpInf = species.calculateCpInf()
+        wilhoit_solute = nasa_solute.toWilhoit(Cp0, CpInf)
+        wilhoit_solute.Tmin = quantity.ScalarQuantity(298., 'K')
+        wilhoit_solute.Tmax = quantity.ScalarQuantity(T_c, 'K')
+
+        return wilhoit_solute
 
     def checkSolventinInitialSpecies(self,rmg,solventStructure):
         """
