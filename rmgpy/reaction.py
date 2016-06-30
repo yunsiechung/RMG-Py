@@ -55,7 +55,6 @@ from rmgpy.species import Species
 from rmgpy.kinetics.arrhenius import Arrhenius #PyDev: @UnresolvedImport
 from rmgpy.kinetics import KineticsData, ArrheniusEP, ThirdBody, Lindemann, Troe, Chebyshev, PDepArrhenius, MultiArrhenius, MultiPDepArrhenius, getRateCoefficientUnitsFromReactionOrder  #PyDev: @UnresolvedImport
 from rmgpy.pdep.reaction import calculateMicrocanonicalRateCoefficient
-from rmgpy.rmg.model import Species as modelSpecies
 
 from rmgpy.kinetics.diffusionLimited import diffusionLimiter
 
@@ -665,7 +664,7 @@ class Reaction:
              "diffusion factor {0.2g} evaluated at {1} K.").format(
                 diffusionFactor, T))
 
-    def fixBarrierHeight(self, forcePositive=False):
+    def fixBarrierHeight(self, forcePositive=False, inCoolProp=False):
         """
         Turns the kinetics into Arrhenius (if they were ArrheniusEP)
         and ensures the activation energy is at least the endothermicity
@@ -680,18 +679,17 @@ class Reaction:
         if isinstance(self.kinetics, ArrheniusEP):
             Ea = self.kinetics.E0.value_si # temporarily using Ea to store the intrinsic barrier height E0
             self.kinetics = self.kinetics.toArrhenius(H298)
-            print(modelSpecies.isSolventinCoolProp)
-            if Ea > 0 and self.kinetics.Ea.value_si < 0 and not modelSpecies.isSolventinCoolProp:
+            if Ea > 0 and self.kinetics.Ea.value_si < 0 and not inCoolProp:
                 self.kinetics.comment += "\nEa raised from {0:.1f} to 0 kJ/mol.".format(self.kinetics.Ea.value_si/1000)
                 logging.info("For reaction {1!s} Ea raised from {0:.1f} to 0 kJ/mol.".format(self.kinetics.Ea.value_si/1000, self))
                 self.kinetics.Ea.value_si = 0
         if isinstance(self.kinetics, Arrhenius):
             Ea = self.kinetics.Ea.value_si
-            if H0 > 0 and Ea < H0 and not modelSpecies.isSolventinCoolProp:
+            if H0 > 0 and Ea < H0 and not inCoolProp:
                 self.kinetics.Ea.value_si = H0
                 self.kinetics.comment += "\nEa raised from {0:.1f} to {1:.1f} kJ/mol to match endothermicity of reaction.".format(Ea/1000,H0/1000)
                 logging.info("For reaction {2!s}, Ea raised from {0:.1f} to {1:.1f} kJ/mol to match endothermicity of reaction.".format(Ea/1000, H0/1000, self))
-        if forcePositive and isinstance(self.kinetics, Arrhenius) and self.kinetics.Ea.value_si < 0 and not modelSpecies.isSolventinCoolProp:
+        if forcePositive and isinstance(self.kinetics, Arrhenius) and self.kinetics.Ea.value_si < 0 and not inCoolProp:
             self.kinetics.comment += "\nEa raised from {0:.1f} to 0 kJ/mol.".format(self.kinetics.Ea.value_si/1000)
             logging.info("For reaction {1!s} Ea raised from {0:.1f} to 0 kJ/mol.".format(self.kinetics.Ea.value_si/1000, self))
             self.kinetics.Ea.value_si = 0

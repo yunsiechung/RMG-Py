@@ -83,7 +83,7 @@ cdef class Reaction:
 
     cpdef double getRateCoefficient(self, double T, double P=?)
 
-    cpdef fixBarrierHeight(self, bint forcePositive=?)
+    cpdef fixBarrierHeight(self, bint forcePositive=?, bint inCoolProp=?)
 
     cpdef reverseThisArrheniusRate(self, Arrhenius kForward, str reverseUnits)
 

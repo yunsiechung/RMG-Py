@@ -155,7 +155,12 @@ class Species(rmgpy.species.Species):
             """
             if self.isSolventinCoolProp: # if the solvent can be found in CoolProp, more accurate solvation correction can be applied
                 if self.isSolvent: # solvent species
-                    wilhoit = database.solvation.getSolventThermo(self, wilhoit)
+                    # wilhoit = database.solvation.getSolventThermo(self, wilhoit)
+                    soluteData = database.solvation.getSoluteData(self)
+                    solvation_correction = database.solvation.getSolvationCorrection(soluteData, Species.solventData)
+                    # correction is added to the entropy and enthalpy
+                    wilhoit.S0.value_si = (wilhoit.S0.value_si + solvation_correction.entropy)
+                    wilhoit.H0.value_si = (wilhoit.H0.value_si + solvation_correction.enthalpy)
                 else: # solute species
 
                     soluteData = database.solvation.getSoluteData(self)
@@ -854,12 +859,12 @@ class CoreEdgeReactionModel:
                 reaction.kinetics = reaction.kinetics.toArrhenius()
             #  correct barrier heights of estimated kinetics
             if isinstance(reaction,TemplateReaction) or isinstance(reaction,DepositoryReaction): # i.e. not LibraryReaction
-                reaction.fixBarrierHeight() # also converts ArrheniusEP to Arrhenius.
+                reaction.fixBarrierHeight(forcePositive=False, inCoolProp=Species.isSolventinCoolProp) # also converts ArrheniusEP to Arrhenius.
                 
             if self.pressureDependence and reaction.isUnimolecular():
                 # If this is going to be run through pressure dependence code,
                 # we need to make sure the barrier is positive.
-                reaction.fixBarrierHeight(forcePositive=True)
+                reaction.fixBarrierHeight(forcePositive=True, inCoolProp=Species.isSolventinCoolProp)
             
         # Update unimolecular (pressure dependent) reaction networks
         if self.pressureDependence:
@@ -1437,7 +1442,7 @@ class CoreEdgeReactionModel:
                 # ...but are Seed Mechanisms run through PDep? Perhaps not.
                 for spec in itertools.chain(rxn.reactants, rxn.products):
                     spec.getThermoData(database, quantumMechanics=self.quantumMechanics)
-                rxn.fixBarrierHeight(forcePositive=True)
+                rxn.fixBarrierHeight(forcePositive=True, inCoolProp=Species.isSolventinCoolProp)
             self.addReactionToCore(rxn)
         
         # Check we didn't introduce unmarked duplicates
