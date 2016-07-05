@@ -157,15 +157,19 @@ class Species(rmgpy.species.Species):
                 if self.isSolvent: # solvent species
                     # wilhoit = database.solvation.getSolventThermo(self, wilhoit)
                     soluteData = database.solvation.getSoluteData(self)
-                    solvation_correction = database.solvation.getSolvationCorrection(soluteData, Species.solventData)
-                    # correction is added to the entropy and enthalpy
-                    wilhoit.S0.value_si = (wilhoit.S0.value_si + solvation_correction.entropy)
-                    wilhoit.H0.value_si = (wilhoit.H0.value_si + solvation_correction.enthalpy)
+                    dGsolv = database.solvation.getdGsolv(self, soluteData, 413.)
+                    print wilhoit.getFreeEnergy(413.)
+                    wilhoit.H0.value_si = (wilhoit.H0.value_si + dGsolv)
+                    print wilhoit.getFreeEnergy(413.)
                 else: # solute species
-
+                    soluteData = database.solvation.getSoluteData(self)
+                    dGsolv = database.solvation.getdGsolv(self, soluteData, 413.)
+                    print wilhoit.getFreeEnergy(413.)
+                    wilhoit.H0.value_si = (wilhoit.H0.value_si + dGsolv)
+                    print wilhoit.getFreeEnergy(413.)
+                    '''
                     soluteData = database.solvation.getSoluteData(self)
                     wilhoit = database.solvation.getSoluteThermo(self, soluteData, wilhoit)
-                    '''
                     soluteData = database.solvation.getSoluteData(self)
                     solvation_correction = database.solvation.getSolvationCorrection(soluteData, Species.solventData)
                     # correction is added to the entropy and enthalpy

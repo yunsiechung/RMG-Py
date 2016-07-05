@@ -1152,6 +1152,38 @@ class SolvationDatabase(object):
 
         return wilhoit_solute
 
+    def getdGsolv(self, species, soluteData, T):
+        """
+        Given the instances of Species, SoluteData, and Wilhoit (gas phase thermo) for the solute,
+        it applies the solvation correction and returns the corrected thermo as a Wilhoit instance.
+        """
+
+        # From the K-factor coefficients, calculate the K-factor at various temperatures between 298 K and the critical
+        # temperature of the solvent.
+        # If T < T_transition, the 2nd order polynomial of Tln(K-factor) vs. drho is used.
+        # If T > = T_transition, the linear equation is used
+        KfactorCoeff = self.getSoluteKfactorCoefficients(species, soluteData)
+        solventName = species.SolventNameinCoolProp
+        T_c = PropsSI('T_critical', solventName) # critical temperature of the solvent, in K
+        rho_c = PropsSI('rhomolar_critical', solventName) # the critical molar density of the solvent, in mol/m^3
+        rho = PropsSI('Dmolar', 'T', T, 'Q', 0, solventName) # molar density of the solvent, in mol/m^3
+        drho = rho - rho_c # rho - rho_c, in mol/m^3
+        Pvap = PropsSI('P', 'T', T, 'Q', 0, solventName) # vapor pressure of the solvent, in Pa
+        if T < KfactorCoeff.T_transition:
+            Kfactor = math.exp((KfactorCoeff.quadratic[0] * (drho ** 2.)
+                                  + KfactorCoeff.quadratic[1] * drho + KfactorCoeff.quadratic[2]) / T)
+        elif T == T_c:
+            Kfactor = 1.
+        else:
+            Kfactor = math.exp(KfactorCoeff.linear * drho / T)
+
+        # Calculate the solvation free energies from K-factor list. The formula is:
+        # dGsolv(T) = R * T * ln( K-factor(T) * Pvap(T) / (R * T * rho(T)) )
+        # The solvation free energy is evaluated at the saturation curve, so it is only a function of temperature.
+        dGsolv = constants.R * T * math.log(Kfactor * Pvap / (constants.R * T * rho))
+
+        return dGsolv
+
     def checkSolventinInitialSpecies(self,rmg,solventStructure):
         """
         Given the instance of RMG class and the solventStructure, it checks whether the solvent is listed as one
