@@ -151,10 +151,16 @@ class Species(rmgpy.species.Species):
                 # If the solvent data are available in CoolProp, the more accurate temperature dependence of the solvation free
                 # energy is applied to make the thermo correction
                 T = Species.rxnTemp.value_si # reaction temperature in K
-                solvation_correction = database.solvation.getSolvationCorrection(self, soluteData, T)
-                # correction is added to the entropy and enthalpy
-                wilhoit.S0.value_si = (wilhoit.S0.value_si + solvation_correction.entropy)
-                wilhoit.H0.value_si = (wilhoit.H0.value_si + solvation_correction.enthalpy)
+                if self.isSolvent: # applying the thermo correction for the solvent species
+                    solvation_correction = database.solvation.getSolventCorrection(self, soluteData, T)
+                    # correction is added to the entropy and enthalpy
+                    wilhoit.S0.value_si = (wilhoit.S0.value_si + solvation_correction.entropy)
+                    wilhoit.H0.value_si = (wilhoit.H0.value_si + solvation_correction.enthalpy)
+                else: # applying the thermo correction for the solute species
+                    solvation_correction = database.solvation.getSolvationCorrection(self, soluteData, T)
+                    # correction is added to the entropy and enthalpy
+                    wilhoit.S0.value_si = (wilhoit.S0.value_si + solvation_correction.entropy)
+                    wilhoit.H0.value_si = (wilhoit.H0.value_si + solvation_correction.enthalpy)
             else:
                 # If the solvent data are unavailable in CoolProp, the linear temperature dependence of the solvation free
                 # energy is assumed, and the enthalpy and entropy of solvation at 298 K are used.

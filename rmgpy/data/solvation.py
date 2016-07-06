@@ -1108,3 +1108,25 @@ class SolvationDatabase(object):
         correction.enthalpy = dGsolv + T * correction.entropy
 
         return correction
+
+    def getSolventCorrection(self, species, soluteData, T):
+        """
+        Given the species and soluteData objects and the temperature of the reaction,
+        it calculates the self-solvation free energy of the solvent speices in J/mol and
+        returns a SolvationCorrecton object.
+        """
+
+        solventName = species.SolventNameinCoolProp
+        rho_liquid = PropsSI('Dmolar', 'T', T, 'Q', 0, solventName) # molar density of the solvent in the liquid phase, in mol/m^3
+        rho_vapor = PropsSI('Dmolar', 'T', T, 'Q', 1, solventName) # molar density of the solvent in the vapor phase, in mol/m^3
+        dGsolv_self = constants.R * T * math.log(rho_vapor / rho_liquid) # free energy of self-solvation, in J/mol
+
+        # The entropy of self-solvation is set equal to the value at 298 K. The enthalpy of self-solvation is
+        # calulated so that (dGsolv_self = dH - T * dS) is satisfied at the specified temperature.
+        correction = SolvationCorrection(0.0, 0.0, 0.0)
+        correction298 = self.getSolvationCorrection298(soluteData, species.solventData)
+        correction.entropy = correction298.entropy
+        correction.gibbs = dGsolv_self
+        correction.enthalpy = dGsolv_self + T * correction.entropy
+
+        return correction

@@ -4,6 +4,7 @@
 import os
 from unittest import TestCase, TestLoader, TextTestRunner
 from external.wip import work_in_progress
+from CoolProp.CoolProp import PropsSI
 
 from rmgpy import settings
 from rmgpy.molecule import Molecule
@@ -324,6 +325,24 @@ multiplicity 2
 
         for i in range(len(Tlist)):
             correction = self.database.getSolvationCorrection(spc, soluteData, Tlist[i])
+            self.assertAlmostEqual(correction.gibbs / 1000., dGsolv_list[i], 1)
+            self.assertAlmostEqual((correction.enthalpy - Tlist[i] * correction.entropy) / 1000., dGsolv_list[i], 1)
+
+    def testSolventCorrection(self):
+        " Test we can get the self-solvation correction at the specified temperature for the solvent species"
+
+        # Test water vapor self-solvating in its pure liquid
+        spc = Species().fromSMILES('O')
+        spc.SolventNameinCoolProp = 'water'
+        spc.solventData = self.database.getSolventData('water')
+        soluteData = self.database.getSoluteData(spc)
+
+        T_c = PropsSI('T_critical', spc.SolventNameinCoolProp)
+        Tlist = [298., 350., 400., 450., 500., 550., 600., T_c]
+        dGsolv_list = [-26.47, -23.94, -21.71, -19.53, -17.22, -14.53, -10.91, 0.0] # in kJ/mol
+
+        for i in range(len(Tlist)):
+            correction = self.database.getSolventCorrection(spc, soluteData, Tlist[i])
             self.assertAlmostEqual(correction.gibbs / 1000., dGsolv_list[i], 1)
             self.assertAlmostEqual((correction.enthalpy - Tlist[i] * correction.entropy) / 1000., dGsolv_list[i], 1)
 
