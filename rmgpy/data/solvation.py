@@ -106,6 +106,7 @@ def saveEntry(f, entry):
         f.write('        eps = {0!r},\n'.format(entry.data.eps))
         f.write('        inCoolProp = {0!r},\n'.format(entry.data.inCoolProp))
         f.write('        NameinCoolProp = "{0}",\n'.format(entry.data.NameinCoolProp))
+        f.write('        v_h = {0!r},\n'.format(entry.data.v_h))
         f.write('    ),\n')
     elif entry.data is None:
         f.write('    solute = None,\n')
@@ -149,7 +150,7 @@ class SolventData():
     """
     def __init__(self, s_h=None, b_h=None, e_h=None, l_h=None, a_h=None,
     c_h=None, s_g=None, b_g=None, e_g=None, l_g=None, a_g=None, c_g=None, A=None, B=None, 
-    C=None, D=None, E=None, alpha=None, beta=None, eps=None, inCoolProp=None, NameinCoolProp=None):
+    C=None, D=None, E=None, alpha=None, beta=None, eps=None, inCoolProp=None, NameinCoolProp=None, v_g=None):
         self.s_h = s_h
         self.b_h = b_h
         self.e_h = e_h
@@ -176,6 +177,8 @@ class SolventData():
         # This describes the availability of the solvent data in CoolProp and its name in CoolProp
         self.inCoolProp = inCoolProp
         self.NameinCoolProp = NameinCoolProp
+        # For liquid-liquid partition coeff
+        self.v_g = v_g
     
     def getHAbsCorrection(self):
         """
@@ -1116,3 +1119,42 @@ class SolvationDatabase(object):
         T_c = PropsSI('T_critical', SolventNameinCoolProp) # critical temperature of the solvent, in K
 
         return T_c
+
+    def getlogP(self, Tlist, soluteSMILES, wet_or_dry, logPexpt=None):
+
+        spc = Species().fromSMILES(soluteSMILES)
+        soluteData = self.getSoluteData(spc)
+        solventData_water = self.getSolventData('water')
+        correction_water = self.getSolvationCorrection298(soluteData, solventData_water)
+
+        solventData_octanol = self.getSolventData('wet-1-octanol')
+        correction_octanol = self.getSolvationCorrection298(soluteData, solventData_octanol)
+
+        dH_water = correction_water.enthalpy
+        dH_octanol = correction_octanol.enthalpy
+        dH_transfer = dH_octanol - dH_water # in J/mol, enthalpy change associated with the transfer of the solute from water to 1-octanol
+
+        if wet_or_dry == 'wet':
+            solventData_ow  = self.getSolventData('ow-wet')
+        else:
+            solventData_ow  = self.getSolventData('ow-dry')
+
+        # Log base 10 of the partition coeffcient of water-1-octanol
+        if logPexpt is not None:
+            logP298 = logPexpt
+        else:
+            logP298 = (soluteData.S*solventData_ow.s_g)+(soluteData.B*solventData_ow.b_g)+(soluteData.E*solventData_ow.e_g)+(soluteData.V*solventData_ow.v_g)+(soluteData.A*solventData_ow.a_g)+solventData_ow.c_g
+        logP_list = []
+
+        for T in Tlist:
+            if T == 298.15:
+                logP_list.append(logP298)
+            else:
+                logP_T = -dH_transfer/constants.R * (1./T - 1/298.15) + logP298
+                logP_list.append(logP_T)
+
+        for i in range(len(Tlist)):
+            print "T = {0} K : logP = {1}".format(Tlist[i], logP_list[i])
+
+        return logP_list
+
