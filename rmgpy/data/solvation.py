@@ -1147,14 +1147,78 @@ class SolvationDatabase(object):
         logP_list = []
 
         for T in Tlist:
-            if T == 298.15:
+            if T == 298.:
                 logP_list.append(logP298)
             else:
-                logP_T = -dH_transfer/constants.R * (1./T - 1/298.15) + logP298
+                logP_T = -dH_transfer/constants.R * (1./T - 1/298.) + logP298
                 logP_list.append(logP_T)
 
         for i in range(len(Tlist)):
-            print "T = {0} K : logP = {1}".format(Tlist[i], logP_list[i])
+            print "T = {0} K : logP = {1}  and  dH_transfer = {2} kJ/mol".format(Tlist[i], logP_list[i], dH_transfer/1000.)
 
         return logP_list
 
+    def getlogPFromActivity(self, Tlist, soluteSMILES, vantHoff, logPexpt=None):
+
+        spc = Species().fromSMILES(soluteSMILES)
+        soluteData = self.getSoluteData(spc)
+        solventData_water = self.getSolventData('water')
+        correction_water = self.getSolvationCorrection298(soluteData, solventData_water)
+
+        solventData_octanol = self.getSolventData('wet-1-octanol')
+        correction_octanol = self.getSolvationCorrection298(soluteData, solventData_octanol)
+
+        dH_water = correction_water.enthalpy
+        dG_water = correction_water.gibbs
+        dS_water = correction_water.entropy
+        dH_octanol = correction_octanol.enthalpy
+        dG_octanol = correction_octanol.gibbs
+        dS_octanol = correction_octanol.entropy
+        dH_transfer = dH_octanol - dH_water # in J/mol, enthalpy change associated with the transfer of the solute from water to 1-octanol
+
+        # Log base 10 of the partition coefficient of water-1-octanol
+        if logPexpt is not None:
+            logP298 = logPexpt
+        else:
+            logP298 = math.log10(math.exp( 1/(constants.R * 298.) * (dG_water - dG_octanol)))
+        logP_list = []
+
+        for T in Tlist:
+            if T == 298.:
+                logP_list.append(logP298)
+            else:
+                if vantHoff:
+                    logP_T = -dH_transfer/constants.R * (1./T - 1/298.) + logP298
+                    logP_list.append(logP_T)
+                else:
+                    dG_water_T = dH_water - T*dS_water
+                    dG_octanol_T = dH_octanol - T*dS_octanol
+                    logP_T = math.log10(math.exp( 1/(constants.R * T) * (dG_water_T - dG_octanol_T)))
+                    logP_list.append(logP_T)
+
+
+        return logP_list
+
+    def getdHTransfer(self, soluteSMILES, exptdH):
+
+        spc = Species().fromSMILES(soluteSMILES)
+        soluteData = self.getSoluteData(spc)
+        solventData_water = self.getSolventData('water')
+        correction_water = self.getSolvationCorrection298(soluteData, solventData_water)
+
+        solventData_octanol = self.getSolventData('1-octanol')
+        correction_octanol = self.getSolvationCorrection298(soluteData, solventData_octanol)
+
+        dH_water = correction_water.enthalpy
+        dG_water = correction_water.gibbs
+        dS_water = correction_water.entropy
+        dH_octanol = correction_octanol.enthalpy
+        dG_octanol = correction_octanol.gibbs
+        dS_octanol = correction_octanol.entropy
+        dH_transfer = dH_octanol - dH_water # in J/mol, enthalpy change associated with the transfer of the solute from water to 1-octanol
+
+        rmg_slope = dH_transfer / (constants.R * 298.**2.)
+        expt_slope = exptdH * 1000. / (constants.R * 298.**2.)
+
+        dH_transfer = dH_transfer / 1000. # in kJ/mol
+        return dH_transfer, expt_slope * 1000. , rmg_slope * 1000.
