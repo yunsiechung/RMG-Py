@@ -54,11 +54,10 @@ cdef class LiquidReactor(ReactionSystem):
     cdef public ScalarQuantity P    
     cdef public double V
     cdef public bint constantVolume
-    cdef public constSPCNames
-    cdef public list constSPCIndices
+    cdef public list constantSpcIndices
     cdef public dict initialConcentrations
 
-    def __init__(self, T, initialConcentrations, termination, sensitiveSpecies=None, sensitivityThreshold=1e-3, constSPCNames=None):
+    def __init__(self, T, initialConcentrations, termination, sensitiveSpecies=None, sensitivityThreshold=1e-3, constantSpcIndices=None):
         ReactionSystem.__init__(self, termination, sensitiveSpecies, sensitivityThreshold)
         self.T = Quantity(T)
         self.P = Quantity(100000.,'kPa') # Arbitrary high pressure (1000 Bar) to get reactions in the high-pressure limit!
@@ -66,8 +65,7 @@ cdef class LiquidReactor(ReactionSystem):
         self.V = 0 # will be set from initialConcentrations in initializeModel
         self.constantVolume = True
         #Constant concentration attributes
-        self.constSPCIndices=None
-        self.constSPCNames = constSPCNames #store index of constant species 
+        self.constantSpcIndices = constantSpcIndices #store index of constant species
         
     def convertInitialKeysToSpeciesObjects(self, speciesDict):
         """
@@ -78,17 +76,8 @@ cdef class LiquidReactor(ReactionSystem):
         for label, moleFrac in self.initialConcentrations.iteritems():
             initialConcentrations[speciesDict[label]] = moleFrac
         self.initialConcentrations = initialConcentrations
-    
-    def get_constSPCIndices (self, coreSpecies):
-        "Allow to identify constant Species position in solver"
-        for spc in self.constSPCNames:
-            if self.constSPCIndices is None: #initialize once the list if constant SPC declared
-                self.constSPCIndices=[]
-            for iter in coreSpecies: #Need to identify the species object corresponding to the the string written in the input file
-                if iter.label == spc:
-                    self.constSPCIndices.append(coreSpecies.index(iter))#get 
   
-    cpdef initializeModel(self, list coreSpecies, list coreReactions, list edgeSpecies, list edgeReactions, list pdepNetworks=None, atol=1e-16, rtol=1e-8, sensitivity=False, sens_atol=1e-6, sens_rtol=1e-4, filterReactions=False):
+    cpdef initializeModel(self, list coreSpecies, list coreReactions, list edgeSpecies, list edgeReactions, list pdepNetworks=None, atol=1e-16, rtol=1e-8, sensitivity=False, sens_atol=1e-6, sens_rtol=1e-4, filterReactions=False, solvent=None):
         """
         Initialize a simulation of the liquid reactor using the provided kinetic
         model.
@@ -288,10 +277,10 @@ cdef class LiquidReactor(ReactionSystem):
             networkLeakRates[j] = reactionRate
 
 
-        #chatelak: Same as in Java, coreSpecies rate = 0 if declared as constatn 
-        if self.constSPCIndices is not None:
-            for spcIndice in self.constSPCIndices:
-                coreSpeciesRates[spcIndice] = 0
+        #chatelak: Same as in Java, coreSpecies rate = 0 if declared as constant
+        if self.constantSpcIndices is not None:
+            for spcIndex in self.constantSpcIndices:
+                coreSpeciesRates[spcIndex] = 0
 
 
         self.coreSpeciesConcentrations = coreSpeciesConcentrations

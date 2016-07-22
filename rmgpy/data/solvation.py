@@ -101,6 +101,8 @@ def saveEntry(f, entry):
         f.write('        alpha = {0!r},\n'.format(entry.data.alpha))
         f.write('        beta = {0!r},\n'.format(entry.data.beta))
         f.write('        eps = {0!r},\n'.format(entry.data.eps))
+        f.write('        inCoolProp = {0!r},\n'.format(entry.data.inCoolProp))
+        f.write('        NameinCoolProp = "{0}",\n'.format(entry.data.NameinCoolProp))
         f.write('    ),\n')
     elif entry.data is None:
         f.write('    solute = None,\n')
@@ -144,7 +146,7 @@ class SolventData():
     """
     def __init__(self, s_h=None, b_h=None, e_h=None, l_h=None, a_h=None,
     c_h=None, s_g=None, b_g=None, e_g=None, l_g=None, a_g=None, c_g=None, A=None, B=None, 
-    C=None, D=None, E=None, alpha=None, beta=None, eps=None):
+    C=None, D=None, E=None, alpha=None, beta=None, eps=None, inCoolProp=None, NameinCoolProp=None):
         self.s_h = s_h
         self.b_h = b_h
         self.e_h = e_h
@@ -168,6 +170,9 @@ class SolventData():
         self.beta = beta
         # This is the dielectric constant
         self.eps = eps
+        # This describes the availability of the solvent data in CoolProp and its name in CoolProp
+        self.inCoolProp = inCoolProp
+        self.nameinCoolProp = NameinCoolProp
     
     def getHAbsCorrection(self):
         """
@@ -494,18 +499,18 @@ class SolvationDatabase(object):
          
         self.loadGroups(os.path.join(path, 'groups'))
         
-    def getSolventData(self, solvent_name):
+    def getSolventData(self, solventName):
         try:
-            solventData = self.libraries['solvent'].getSolventData(solvent_name)
+            solventData = self.libraries['solvent'].getSolventData(solventName)
         except:
-            raise DatabaseError('Solvent {0!r} not found in database'.format(solvent_name))
+            raise DatabaseError('Solvent {0!r} not found in database'.format(solventName))
         return solventData
 
-    def getSolventStructure(self, solvent_name):
+    def getSolventStructure(self, solventName):
         try:
-            solventStructure = self.libraries['solvent'].getSolventStructure(solvent_name)
+            solventStructure = self.libraries['solvent'].getSolventStructure(solventName)
         except:
-            raise DatabaseError('Solvent {0!r} not found in database'.format(solvent_name))
+            raise DatabaseError('Solvent {0!r} not found in database'.format(solventName))
         return solventStructure
         
     def loadGroups(self, path):
@@ -903,7 +908,7 @@ class SolvationDatabase(object):
         # Use Abraham parameters for solvents to get log K
         logK = (soluteData.S*solventData.s_g)+(soluteData.B*solventData.b_g)+(soluteData.E*solventData.e_g)+(soluteData.L*solventData.l_g)+(soluteData.A*solventData.a_g)+solventData.c_g
         # Convert to delG with units of J/mol
-        delG = -8.314*298*2.303*logK
+        delG = -constants.R*298*math.log(10.)*logK
         return delG
         
     def calcS(self, delG, delH):
@@ -925,24 +930,14 @@ class SolvationDatabase(object):
         correction.entropy = self.calcS(correction.gibbs, correction.enthalpy) 
         return correction
 
-    def checkSolventinInitialSpecies(self,rmg,solventStructure):
+    def checkSolventStructure(self, solvent):
         """
-        Given the instance of RMG class and the solventStructure, it checks whether the solvent is listed as one
-        of the initial species.
-        If the SMILES / adjacency list for all the solvents exist in the solvent library, it uses the solvent's
-        molecular structure to determine whether the species is the solvent or not.
-        If the solvent library does not have SMILES / adjacency list, then it uses the solvent's string name
-        to determine whether the species is the solvent or not
+        Check that the solventSpecies has the correct solventStructure.
+        It raises the error if the solventSpecies does not pass the isIsomorphic test with the solventStructure
+        loaded from the solvent database.
         """
-        for spec in rmg.initialSpecies:
-            if solventStructure is not None:
-                spec.isSolvent = spec.isIsomorphic(solventStructure)
-            else:
-                spec.isSolvent = rmg.solvent == spec.label
-        if not any([spec.isSolvent for spec in rmg.initialSpecies]):
-            if solventStructure is not None:
-                logging.info('One of the initial species must be the solvent')
-                raise Exception('One of the initial species must be the solvent')
-            else:
-                logging.info('One of the initial species must be the solvent with the same string name')
-                raise Exception('One of the initial species must be the solvent with the same string name')
+        solventStructure = self.getSolventStructure(solvent.solventName)
+        # If the old version of the database is used, solventStructure is None, so skip the check.
+        if not solventStructure:
+            if not solvent.solventSpecies.isIsomorphic(solventStructure):
+                raise DatabaseError('The structure of the solvent {0!r} is not found in the solvent database'.format(solvent.solventName))

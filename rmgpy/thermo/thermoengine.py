@@ -18,7 +18,7 @@ def processThermoData(spc, thermo0, thermoClass=NASA):
     Resulting thermo is returned.
     """
     # TODO moving this as a global import leads to circular imports.
-    from rmgpy.rmg.model import Species
+    # from rmgpy.species import Species
 
     thermo = None
 
@@ -38,7 +38,7 @@ def processThermoData(spc, thermo0, thermoClass=NASA):
         CpInf = spc.calculateCpInf()
         wilhoit = thermo0.toWilhoit(Cp0=Cp0, CpInf=CpInf)
     wilhoit.comment = thermo0.comment
-
+    '''
     # Add on solvation correction
     if Species.solventData and not "Liquid thermo library" in thermo0.comment:
         solvationdatabase = getDB('solvation')
@@ -48,7 +48,7 @@ def processThermoData(spc, thermo0, thermoClass=NASA):
         # correction is added to the entropy and enthalpy
         wilhoit.S0.value_si = (wilhoit.S0.value_si + solvation_correction.entropy)
         wilhoit.H0.value_si = (wilhoit.H0.value_si + solvation_correction.enthalpy)
-        
+    '''
     # Compute E0 by extrapolation to 0 K
     if spc.conformer is None:
         spc.conformer = Conformer()
@@ -58,7 +58,8 @@ def processThermoData(spc, thermo0, thermoClass=NASA):
     if thermoClass is Wilhoit:
         thermo = wilhoit
     elif thermoClass is NASA:
-        if Species.solventData:
+        # if Species.solventData:
+        if False:
             #if liquid phase simulation keep the nasa polynomial if it comes from a liquid phase thermoLibrary. Otherwise convert wilhoit to NASA
             if "Liquid thermo library" in thermo0.comment and isinstance(thermo0, NASA):
                 thermo = thermo0
