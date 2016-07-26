@@ -672,29 +672,34 @@ class Reaction:
         of using Evans Polanyi with an exothermic reaction.
         If `forcePositive` is True, then all reactions
         are forced to have a non-negative barrier.
+        This function is not used for liquid-phase reactions
+        since fitting NASA / Wilhoit thermo models to the solute thermo
+        results in unreasonable values of H0. If diffusionLimiter.enabled
+        is True, then the reaction is in liquid-phase.
         """
         cython.declare(H0=cython.double, H298=cython.double, Ea=cython.double)
 
-        H298 = self.getEnthalpyOfReaction(298)
-        H0 = sum([spec.getThermoData().E0.value_si for spec in self.products]) \
-            - sum([spec.getThermoData().E0.value_si for spec in self.reactants])
-        if isinstance(self.kinetics, ArrheniusEP):
-            Ea = self.kinetics.E0.value_si # temporarily using Ea to store the intrinsic barrier height E0
-            self.kinetics = self.kinetics.toArrhenius(H298)
-            if Ea > 0 and self.kinetics.Ea.value_si < 0:
+        if not diffusionLimiter.enabled:
+            H298 = self.getEnthalpyOfReaction(298)
+            H0 = sum([spec.getThermoData().E0.value_si for spec in self.products]) \
+                - sum([spec.getThermoData().E0.value_si for spec in self.reactants])
+            if isinstance(self.kinetics, ArrheniusEP):
+                Ea = self.kinetics.E0.value_si # temporarily using Ea to store the intrinsic barrier height E0
+                self.kinetics = self.kinetics.toArrhenius(H298)
+                if Ea > 0 and self.kinetics.Ea.value_si < 0:
+                    self.kinetics.comment += "\nEa raised from {0:.1f} to 0 kJ/mol.".format(self.kinetics.Ea.value_si/1000)
+                    logging.info("For reaction {1!s} Ea raised from {0:.1f} to 0 kJ/mol.".format(self.kinetics.Ea.value_si/1000, self))
+                    self.kinetics.Ea.value_si = 0
+            if isinstance(self.kinetics, Arrhenius):
+                Ea = self.kinetics.Ea.value_si
+                if H0 > 0 and Ea < H0:
+                    self.kinetics.Ea.value_si = H0
+                    self.kinetics.comment += "\nEa raised from {0:.1f} to {1:.1f} kJ/mol to match endothermicity of reaction.".format(Ea/1000,H0/1000)
+                    logging.info("For reaction {2!s}, Ea raised from {0:.1f} to {1:.1f} kJ/mol to match endothermicity of reaction.".format(Ea/1000, H0/1000, self))
+            if forcePositive and isinstance(self.kinetics, Arrhenius) and self.kinetics.Ea.value_si < 0:
                 self.kinetics.comment += "\nEa raised from {0:.1f} to 0 kJ/mol.".format(self.kinetics.Ea.value_si/1000)
                 logging.info("For reaction {1!s} Ea raised from {0:.1f} to 0 kJ/mol.".format(self.kinetics.Ea.value_si/1000, self))
                 self.kinetics.Ea.value_si = 0
-        if isinstance(self.kinetics, Arrhenius):
-            Ea = self.kinetics.Ea.value_si
-            if H0 > 0 and Ea < H0:
-                self.kinetics.Ea.value_si = H0
-                self.kinetics.comment += "\nEa raised from {0:.1f} to {1:.1f} kJ/mol to match endothermicity of reaction.".format(Ea/1000,H0/1000)
-                logging.info("For reaction {2!s}, Ea raised from {0:.1f} to {1:.1f} kJ/mol to match endothermicity of reaction.".format(Ea/1000, H0/1000, self))
-        if forcePositive and isinstance(self.kinetics, Arrhenius) and self.kinetics.Ea.value_si < 0:
-            self.kinetics.comment += "\nEa raised from {0:.1f} to 0 kJ/mol.".format(self.kinetics.Ea.value_si/1000)
-            logging.info("For reaction {1!s} Ea raised from {0:.1f} to 0 kJ/mol.".format(self.kinetics.Ea.value_si/1000, self))
-            self.kinetics.Ea.value_si = 0
 
 
     def reverseThisArrheniusRate(self, kForward, reverseUnits):

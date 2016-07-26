@@ -8,8 +8,7 @@ from external.wip import work_in_progress
 from rmgpy import settings
 from rmgpy.molecule import Molecule
 from rmgpy.species import Species
-from rmgpy.data.solvation import DatabaseError, SoluteData, SolvationDatabase, SolventLibrary
-from rmgpy.rmg.main import RMG
+from rmgpy.data.solvation import DatabaseError, SoluteData, SolvationDatabase, SolventLibrary, SolventData
 
 ###################################################
 
@@ -227,38 +226,39 @@ multiplicity 2
         " Test we can give proper values for CoolProp related Species attributes when different solvet database are given"
 
         # Case 1: When the solventDatabase does not contain any CoolProp related info, inCoolProp and
-        # NameinCoolProp attributes are all None
+        # nameinCoolProp attributes are all None
         solventlibrary = SolventLibrary()
         solventdata = SolventData()
         solventlibrary.loadEntry(index=1, label='water', solvent=solventdata)
         self.assertTrue(solventlibrary.entries['water'].data.inCoolProp is None)
-        self.assertTrue(solventlibrary.entries['water'].data.NameinCoolProp is None)
+        self.assertTrue(solventlibrary.entries['water'].data.nameinCoolProp is None)
 
         # Case 2: When the solventDatabase does contain CoolProp related info and the solvent is available in CoolProp,
-        # 'inCoolProp' returns True and 'NameinCoolProp' returns the solvent's name recognizable by CoolProp
+        # 'inCoolProp' returns True and 'nameinCoolProp' returns the solvent's name recognizable by CoolProp
         solventdata.inCoolProp = True
-        solventdata.NameinCoolProp = 'CycloHexane'
+        solventdata.nameinCoolProp = 'CycloHexane'
         solventlibrary.loadEntry(index=2, label='cyclohexane', solvent=solventdata)
         self.assertTrue(solventlibrary.entries['cyclohexane'].data.inCoolProp)
-        self.assertTrue(solventlibrary.entries['cyclohexane'].data.NameinCoolProp is 'CycloHexane')
+        self.assertTrue(solventlibrary.entries['cyclohexane'].data.nameinCoolProp is 'CycloHexane')
 
         # Case 3: When the solventDatabase does contain CoolProp related info and the solvent is unavailable in CoolProp,
-        # 'inCoolProp' returns True and 'NameinCoolProp' returns None
+        # 'inCoolProp' returns True and 'nameinCoolProp' returns None
         solventdata.inCoolProp = False
-        solventdata.NameinCoolProp = None
+        solventdata.nameinCoolProp = None
         solventlibrary.loadEntry(index=3, label='hexadecane', solvent=solventdata)
         self.assertFalse(solventlibrary.entries['hexadecane'].data.inCoolProp)
-        self.assertTrue(solventlibrary.entries['hexadecane'].data.NameinCoolProp is None)
+        self.assertTrue(solventlibrary.entries['hexadecane'].data.nameinCoolProp is None)
 
     def testSoluteKfactors(self):
         " Test we can get correct coefficients for the solute's K-factor formula"
 
         # Test O2 in water
         spc = Species().fromSMILES('[O][O]')
-        spc.SolventNameinCoolProp = 'water'
-        spc.solventData = self.database.getSolventData('water')
         soluteData = self.database.getSoluteData(spc)
-        Kfactor = self.database.getSoluteKfactorCoefficients(spc, soluteData)
+        solventData = self.database.getSolventData('water')
+        solventData.nameinCoolProp = 'water'
+        solventData.inCoolProp = True
+        Kfactor = self.database.getSoluteKfactorCoefficients(soluteData, solventData)
         self.assertAlmostEqual(Kfactor.linear, 0.1092, 3)
         self.assertAlmostEqual(Kfactor.quadratic[0] * 1e5, -2.6737, 3)
         self.assertAlmostEqual(Kfactor.quadratic[1], 1.9835, 3)
@@ -266,31 +266,13 @@ multiplicity 2
 
         # Test methane in water
         spc = Species().fromSMILES('C')
-        spc.SolventNameinCoolProp = 'water'
-        spc.solventData = self.database.getSolventData('water')
         soluteData = self.database.getSoluteData(spc)
-        Kfactor = self.database.getSoluteKfactorCoefficients(spc, soluteData)
+        Kfactor = self.database.getSoluteKfactorCoefficients(soluteData, solventData)
         self.assertAlmostEqual(Kfactor.linear, 0.1130, 3)
         self.assertAlmostEqual(Kfactor.quadratic[0] * 1e5, -3.8270, 3)
         self.assertAlmostEqual(Kfactor.quadratic[1], 2.7953, 3)
         self.assertAlmostEqual(Kfactor.quadratic[2] * 1e-4, -4.7000, 3)
 
-    def testSolvationCorrection(self):
-        " Test we can get the solvation correction at the specified temperature"
-
-        # Test O2 in water
-        spc = Species().fromSMILES('[O][O]')
-        spc.SolventNameinCoolProp = 'water'
-        spc.solventData = self.database.getSolventData('water')
-        soluteData = self.database.getSoluteData(spc)
-
-        Tlist = [298., 350., 400., 450., 500., 550., 600.]
-        dGsolv_list = [6.38, 8.73, 9.33, 8.96, 7.95, 6.19, 3.20] # in kJ/mol
-
-        for i in range(len(Tlist)):
-            correction = self.database.getSolvationCorrection(spc, soluteData, Tlist[i])
-            self.assertAlmostEqual(correction.gibbs / 1000., dGsolv_list[i], 1)
-            self.assertAlmostEqual((correction.enthalpy - Tlist[i] * correction.entropy) / 1000., dGsolv_list[i], 1)
 
 #####################################################
 

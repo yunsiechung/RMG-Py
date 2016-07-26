@@ -307,7 +307,7 @@ class RMG(util.Subject):
         #set global variable solvent
         if self.solvent:
             global solvent
-            solvent = self.solvent.solventName
+            solvent = self.solvent
 
         if self.kineticsEstimator == 'rate rules':
             if '!training' not in self.kineticsDepositories:

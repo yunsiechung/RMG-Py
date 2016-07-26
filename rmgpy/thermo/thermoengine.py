@@ -6,10 +6,8 @@ import logging as logging
 from rmgpy.scoop_framework.util import submit_
 from rmgpy.data.rmg import getDB
 import rmgpy.constants as constants
-from rmgpy.molecule import Molecule
 from rmgpy.statmech import Conformer
 from rmgpy.thermo import Wilhoit, NASA, ThermoData
-import rmgpy.data.rmg
 
 def processThermoData(spc, thermo0, thermoClass=NASA):
     """
@@ -18,7 +16,7 @@ def processThermoData(spc, thermo0, thermoClass=NASA):
     Resulting thermo is returned.
     """
     # TODO moving this as a global import leads to circular imports.
-    # from rmgpy.species import Species
+    from rmgpy.rmg.main import solvent
 
     thermo = None
 
@@ -38,17 +36,21 @@ def processThermoData(spc, thermo0, thermoClass=NASA):
         CpInf = spc.calculateCpInf()
         wilhoit = thermo0.toWilhoit(Cp0=Cp0, CpInf=CpInf)
     wilhoit.comment = thermo0.comment
-    '''
+
     # Add on solvation correction
-    if Species.solventData and not "Liquid thermo library" in thermo0.comment:
-        solvationdatabase = getDB('solvation')
+    if solvent and not "Liquid thermo library" in thermo0.comment:
+        solvationDatabase = getDB('solvation')
         #logging.info("Making solvent correction for {0}".format(Species.solventName))
-        soluteData = solvationdatabase.getSoluteData(spc)
-        solvation_correction = solvationdatabase.getSolvationCorrection(soluteData, Species.solventData)
-        # correction is added to the entropy and enthalpy
-        wilhoit.S0.value_si = (wilhoit.S0.value_si + solvation_correction.entropy)
-        wilhoit.H0.value_si = (wilhoit.H0.value_si + solvation_correction.enthalpy)
-    '''
+        soluteData = solvationDatabase.getSoluteData(spc)
+        if solvent.solventData.inCoolProp:
+            # comment !@#$%^&*(
+            wilhoit = solvationDatabase.getSolvationThermo(soluteData, solvent.solventData, wilhoit)
+        else:
+            solvationCorrection = solvationDatabase.getSolvationCorrection298(soluteData, solvent.solventData)
+            # correction is added to the entropy and enthalpy
+            wilhoit.S0.value_si = (wilhoit.S0.value_si + solvationCorrection.entropy)
+            wilhoit.H0.value_si = (wilhoit.H0.value_si + solvationCorrection.enthalpy)
+
     # Compute E0 by extrapolation to 0 K
     if spc.conformer is None:
         spc.conformer = Conformer()
@@ -59,7 +61,7 @@ def processThermoData(spc, thermo0, thermoClass=NASA):
         thermo = wilhoit
     elif thermoClass is NASA:
         # if Species.solventData:
-        if False:
+        if solvent:
             #if liquid phase simulation keep the nasa polynomial if it comes from a liquid phase thermoLibrary. Otherwise convert wilhoit to NASA
             if "Liquid thermo library" in thermo0.comment and isinstance(thermo0, NASA):
                 thermo = thermo0
