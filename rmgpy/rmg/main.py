@@ -510,7 +510,6 @@ class RMG(util.Subject):
                     atol = self.absoluteTolerance,
                     rtol = self.relativeTolerance,
                     filterReactions = True,
-                    solvent = self.solvent
                 )
                 self.updateReactionThresholdAndReactFlags(
                     rxnSysUnimolecularThreshold=reactionSystem.unimolecularThreshold, 
