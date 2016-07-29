@@ -47,27 +47,9 @@ def processThermoData(spc, thermo0, thermoClass=NASA):
         NASA_newcode = output[1]
         solvationCorrection = solvationDatabase.getSolvationCorrection298(soluteData, solvent.solventData)
         # correction is added to the entropy and enthalpy
-        wilhoit.S0.value_si = (wilhoit.S0.value_si + solvationCorrection.entropy)
-        wilhoit.H0.value_si = (wilhoit.H0.value_si + solvationCorrection.enthalpy)
-
-        T = 500.
-        discrepancy = (wilhoit_newcode.getFreeEnergy(T) - wilhoit.getFreeEnergy(T))/1000. #kJ/mol
-        logging.info("For species {0}, the discrepancy in dG is {1} kJ/mol".format(spc.label, discrepancy))
-
-        wilhoit.H0.value_si = (wilhoit.H0.value_si + discrepancy * 1000.)
 
         wilhoit = wilhoit_newcode
 
-        '''
-        if solvent.solventData.inCoolProp:
-            # comment !@#$%^&*
-            wilhoit = solvationDatabase.getSolvationThermo(soluteData, solvent.solventData, wilhoit)
-        else:
-            solvationCorrection = solvationDatabase.getSolvationCorrection298(soluteData, solvent.solventData)
-            # correction is added to the entropy and enthalpy
-            wilhoit.S0.value_si = (wilhoit.S0.value_si + solvationCorrection.entropy)
-            wilhoit.H0.value_si = (wilhoit.H0.value_si + solvationCorrection.enthalpy)
-        '''
 
     # Compute E0 by extrapolation to 0 K
     if spc.conformer is None:
