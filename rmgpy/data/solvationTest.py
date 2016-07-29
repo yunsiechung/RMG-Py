@@ -273,6 +273,32 @@ multiplicity 2
         self.assertAlmostEqual(Kfactor.quadratic[1], 2.7953, 3)
         self.assertAlmostEqual(Kfactor.quadratic[2] * 1e-4, -4.7000, 3)
 
+        spc = Species().fromSMILES('[O][O]')
+        soluteData = self.database.getSoluteData(spc)
+        solventData = self.database.getSolventData('octane')
+        solventData.nameinCoolProp = 'Octane'
+        solventData.inCoolProp = True
+
+        import numpy as np
+        from rmgpy.thermo.nasa import NASA
+        Tc = self.database.getSolventTc('Octane')
+        Tlist = np.linspace(298., Tc, 100, True)
+        dGlist = self.database.getSolvationFreeEnergy(soluteData, solventData, Tlist)
+        correctedNASA = NASA().fitToFreeEnergyData(Tlist, np.asarray(dGlist), 298., Tc)
+
+        spc = Species().fromSMILES('C(CCCCC)CC')
+        soluteData = self.database.getSoluteData(spc)
+        solventData = self.database.getSolventData('octane')
+        solventData.nameinCoolProp = 'Octane'
+        solventData.inCoolProp = True
+
+        import numpy as np
+        from rmgpy.thermo.nasa import NASA
+        Tc = self.database.getSolventTc('Octane')
+        Tlist = np.linspace(298., Tc, 100, True)
+        dGlist = self.database.getSolvationFreeEnergy(soluteData, solventData, Tlist)
+        correctedNASA = NASA().fitToFreeEnergyData(Tlist, np.asarray(dGlist), 298., Tc)
+        yunsie = 'yes'
 
 #####################################################
 

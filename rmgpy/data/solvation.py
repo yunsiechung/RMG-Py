@@ -41,7 +41,6 @@ from rmgpy.species import Species
 from copy import deepcopy
 from base import Database, Entry, makeLogicNode, DatabaseError
 from CoolProp.CoolProp import PropsSI
-from rmgpy.thermo.wilhoit import Wilhoit
 from rmgpy.thermo.nasa import NASA
 import rmgpy.quantity as quantity
 
@@ -1076,7 +1075,7 @@ class SolvationDatabase(object):
 
         solventName = solventData.nameinCoolProp
         Tc = self.getSolventTc(solventName)
-        Tlist = numpy.linspace(298., Tc-30., 7, True)
+        Tlist = numpy.linspace(298., Tc, 7, True)
         dGsolvList = self.getSolvationFreeEnergy(soluteData, solventData, Tlist)
         dGgasList = [gasWilhoit.getFreeEnergy(T) for T in Tlist]
         dGcorrectedList = [dGsolvList[i] + dGgasList[i] for i in range(Tlist.shape[0])]
@@ -1088,7 +1087,7 @@ class SolvationDatabase(object):
         correctedWilhoit.Tmin = quantity.ScalarQuantity(298., 'K')
         correctedWilhoit.Tmax = quantity.ScalarQuantity(Tc, 'K')
 
-        return correctedWilhoit
+        return correctedWilhoit, correctedNASA
 
     def getSolventTc(self, nameinCoolProp):
         """
