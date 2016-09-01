@@ -93,7 +93,9 @@ model(
 
 options(
     units='si',
-    saveRestartPeriod=(2,'hour'),
+    saveRestartPeriod=None, # take too long! and requires too much memories. It takes a snapshot of the entire model every specified time period
     generateOutputHTML=False,
     generatePlots=False,
+    saveSimulationProfiles=True,
+    saveEdgeSpecies=False,
 )
