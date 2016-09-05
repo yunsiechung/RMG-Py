@@ -8,8 +8,9 @@ from external.wip import work_in_progress
 from rmgpy import settings
 from rmgpy.molecule import Molecule
 from rmgpy.species import Species
-from rmgpy.data.solvation import DatabaseError, SoluteData, SolvationDatabase, SolventLibrary
+from rmgpy.data.solvation import DatabaseError, SoluteData, SolvationDatabase, SolventLibrary, SolventData
 from rmgpy.rmg.solvent import Solvent
+
 
 ###################################################
 
@@ -164,8 +165,8 @@ multiplicity 2
         soluteData = self.database.getSoluteDataFromGroups(species)
         self.assertTrue(soluteData is not None)
 
-    def testCorrectionGeneration(self):
-        "Test we can estimate solvation thermochemistry."
+    def testCorrectionGeneration298(self):
+        "Test we can estimate solvation thermochemistry at 298 K."
         self.testCases = [
         # solventName, soluteName, soluteSMILES, Hsolv, Gsolv
         ['water', 'acetic acid', 'C(C)(=O)O', -56500, -6700*4.184],
@@ -180,15 +181,9 @@ multiplicity 2
             species = Species(molecule=[Molecule(SMILES=smiles)])
             soluteData = self.database.getSoluteData(species)
             solventData = self.database.getSolventData(solventName)
-            solvationCorrection = self.database.getSolvationCorrection(soluteData, solventData)
-            self.assertAlmostEqual(solvationCorrection.enthalpy / 10000., H / 10000., 0, msg="Solvation enthalpy discrepancy ({2:.0f}!={3:.0f}) for {0} in {1}".format(soluteName, solventName, solvationCorrection.enthalpy, H))  #0 decimal place, in 10kJ.
-            self.assertAlmostEqual(solvationCorrection.gibbs / 10000., G / 10000., 0, msg="Solvation Gibbs free energy discrepancy ({2:.0f}!={3:.0f}) for {0} in {1}".format(soluteName, solventName, solvationCorrection.gibbs, G))
-
-        species = Species().fromSMILES('[O][O]')
-        soluteData = self.database.getSoluteData(species)
-        solventData = self.database.getSolventData('octane')
-        solvationCorrection = self.database.getSolvationCorrection(soluteData, solventData)
-        a = 'yunsie'
+            solvationCorrection298 = self.database.getSolvationCorrection298(soluteData, solventData)
+            self.assertAlmostEqual(solvationCorrection298.enthalpy / 10000., H / 10000., 0, msg="Solvation enthalpy discrepancy ({2:.0f}!={3:.0f}) for {0} in {1}".format(soluteName, solventName, solvationCorrection298.enthalpy, H))  #0 decimal place, in 10kJ.
+            self.assertAlmostEqual(solvationCorrection298.gibbs / 10000., G / 10000., 0, msg="Solvation Gibbs free energy discrepancy ({2:.0f}!={3:.0f}) for {0} in {1}".format(soluteName, solventName, solvationCorrection298.gibbs, G))
 
     def testSolventMolecule(self):
         " Test we can give a proper value for the solvent molecular structure when different solvent databases are given "
@@ -241,6 +236,85 @@ multiplicity 2
         # The solvent now has the correct SMILES. No DatabaseError is raised
         solvent.solventSpecies = Species().fromSMILES('CCCCCCCC')
         self.database.checkSolventStructure(solvent)
+
+    def testSolventCoolPropInfo(self):
+        " Test we can give proper values for CoolProp related Species attributes when different solvet database are given"
+
+        # Case 1: When the solventDatabase does not contain any CoolProp related info, inCoolProp and
+        # nameinCoolProp attributes are all None
+        solventlibrary = SolventLibrary()
+        solventdata = SolventData()
+        solventlibrary.loadEntry(index=1, label='water', solvent=solventdata)
+        self.assertTrue(solventlibrary.entries['water'].data.inCoolProp is None)
+        self.assertTrue(solventlibrary.entries['water'].data.nameinCoolProp is None)
+
+        # Case 2: When the solventDatabase does contain CoolProp related info and the solvent is available in CoolProp,
+        # 'inCoolProp' returns True and 'nameinCoolProp' returns the solvent's name recognizable by CoolProp
+        solventdata.inCoolProp = True
+        solventdata.nameinCoolProp = 'CycloHexane'
+        solventlibrary.loadEntry(index=2, label='cyclohexane', solvent=solventdata)
+        self.assertTrue(solventlibrary.entries['cyclohexane'].data.inCoolProp)
+        self.assertTrue(solventlibrary.entries['cyclohexane'].data.nameinCoolProp is 'CycloHexane')
+
+        # Case 3: When the solventDatabase does contain CoolProp related info and the solvent is unavailable in CoolProp,
+        # 'inCoolProp' returns True and 'nameinCoolProp' returns None
+        solventdata.inCoolProp = False
+        solventdata.nameinCoolProp = None
+        solventlibrary.loadEntry(index=3, label='hexadecane', solvent=solventdata)
+        self.assertFalse(solventlibrary.entries['hexadecane'].data.inCoolProp)
+        self.assertTrue(solventlibrary.entries['hexadecane'].data.nameinCoolProp is None)
+
+    def testSoluteKfactors(self):
+        " Test we can get correct coefficients for the solute's K-factor formula"
+
+        # Test O2 in water
+        spc = Species().fromSMILES('[O][O]')
+        soluteData = self.database.getSoluteData(spc)
+        solventData = self.database.getSolventData('water')
+        solventData.nameinCoolProp = 'water'
+        solventData.inCoolProp = True
+        Kfactor = self.database.getSoluteKfactorCoefficients(soluteData, solventData)
+        self.assertAlmostEqual(Kfactor.linear, 0.1092, 3)
+        self.assertAlmostEqual(Kfactor.quadratic[0] * 1e5, -2.6737, 3)
+        self.assertAlmostEqual(Kfactor.quadratic[1], 1.9835, 3)
+        self.assertAlmostEqual(Kfactor.quadratic[2] * 1e-4, -3.2835, 3)
+
+        # Test methane in water
+        spc = Species().fromSMILES('C')
+        soluteData = self.database.getSoluteData(spc)
+        Kfactor = self.database.getSoluteKfactorCoefficients(soluteData, solventData)
+        self.assertAlmostEqual(Kfactor.linear, 0.1130, 3)
+        self.assertAlmostEqual(Kfactor.quadratic[0] * 1e5, -3.8270, 3)
+        self.assertAlmostEqual(Kfactor.quadratic[1], 2.7953, 3)
+        self.assertAlmostEqual(Kfactor.quadratic[2] * 1e-4, -4.7000, 3)
+
+        spc = Species().fromSMILES('[O][O]')
+        soluteData = self.database.getSoluteData(spc)
+        solventData = self.database.getSolventData('octane')
+        solventData.nameinCoolProp = 'Octane'
+        solventData.inCoolProp = True
+
+        import numpy as np
+        from rmgpy.thermo.nasa import NASA
+        Tc = self.database.getSolventTc('Octane')
+        Tlist = np.linspace(298., Tc, 100, True)
+        dGlist = self.database.getSolvationFreeEnergy(soluteData, solventData, Tlist)
+        correctedNASA = NASA().fitToFreeEnergyData(Tlist, np.asarray(dGlist), 298., Tc)
+
+        spc = Species().fromSMILES('C(CCCCC)CC')
+        soluteData = self.database.getSoluteData(spc)
+        solventData = self.database.getSolventData('octane')
+        solventData.nameinCoolProp = 'Octane'
+        solventData.inCoolProp = True
+
+        import numpy as np
+        from rmgpy.thermo.nasa import NASA
+        Tc = self.database.getSolventTc('Octane')
+        Tlist = np.linspace(298., Tc, 100, True)
+        dGlist = self.database.getSolvationFreeEnergy(soluteData, solventData, Tlist)
+        correctedNASA = NASA().fitToFreeEnergyData(Tlist, np.asarray(dGlist), 298., Tc)
+        yunsie = 'yes'
+
 #####################################################
 
 if __name__ == '__main__':
