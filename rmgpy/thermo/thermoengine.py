@@ -33,11 +33,16 @@ def processThermoData(spc, thermo0, thermoClass=NASA):
         solvationDatabase = getDB('solvation')
         #logging.info("Making solvent correction for {0}".format(Species.solventName))
         soluteData = solvationDatabase.getSoluteData(spc)
-        solvationCorrection = solvationDatabase.getSolvationCorrection(soluteData, solvent.solventData)
-        # correction is added to the entropy and enthalpy
-        wilhoit.S0.value_si = (wilhoit.S0.value_si + solvationCorrection.entropy)
-        wilhoit.H0.value_si = (wilhoit.H0.value_si + solvationCorrection.enthalpy)
-        
+        if solvent.solventData.inCoolProp:
+            output = solvationDatabase.getSolvationThermo(soluteData, solvent.solventData, wilhoit)
+            wilhoit =  output[0]
+            NASAcorrected = output[1]
+        else:
+            solvationCorrection = solvationDatabase.getSolvationCorrection298(soluteData, solvent.solventData)
+            # correction is added to the entropy and enthalpy
+            wilhoit.S0.value_si = (wilhoit.S0.value_si + solvationCorrection.entropy)
+            wilhoit.H0.value_si = (wilhoit.H0.value_si + solvationCorrection.enthalpy)
+
     # Compute E0 by extrapolation to 0 K
     if spc.conformer is None:
         spc.conformer = Conformer()
@@ -55,6 +60,9 @@ def processThermoData(spc, thermo0, thermoClass=NASA):
                     thermo.E0 = wilhoit.E0
             else:
                 thermo = wilhoit.toNASA(Tmin=100.0, Tmax=5000.0, Tint=1000.0)
+                thermo.poly1.coeffs = NASAcorrected.poly1.coeffs
+                thermo.poly2.coeffs = NASAcorrected.poly1.coeffs
+
         else: 
             #gas phase with species matching thermo library keep the NASA from library or convert if group additivity
             if "Thermo library" in thermo0.comment and isinstance(thermo0,NASA):
