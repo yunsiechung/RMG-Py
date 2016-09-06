@@ -211,6 +211,8 @@ class QMCalculator():
                 qm_molecule_calculator = rmgpy.qm.mopac.MopacMolPM6(molecule, self.settings)
             elif self.settings.method == 'pm7':
                 qm_molecule_calculator = rmgpy.qm.mopac.MopacMolPM7(molecule, self.settings)
+            elif self.settings.method == 'pm6-d3':
+                qm_molecule_calculator = rmgpy.qm.mopac.MopacMolPM6D3(molecule, self.settings)
             else:
                 raise Exception("Unknown QM method '{0}' for mopac".format(self.settings.method))
             thermo0 = qm_molecule_calculator.generateThermoData()
