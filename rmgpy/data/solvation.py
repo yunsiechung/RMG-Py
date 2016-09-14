@@ -1095,3 +1095,68 @@ class SolvationDatabase(object):
         """
         Tc = PropsSI('T_critical', nameinCoolProp)
         return Tc
+
+    def getdGsolvNoMintz(self, soluteData, solventData, T):
+
+        solvationCorrection298 = self.getSolvationCorrection298(soluteData, solventData)
+        dGsolv298 = solvationCorrection298.gibbs # the Gibbs free energy of solvation, at 298K, in J/mol
+        dHsolv298 = solvationCorrection298.enthalpy # the enthalpy of solvation, at 298K, in J/mol
+        dSsolv298 = solvationCorrection298.entropy # the entropy of solvation, at 298K, in J/mol/K
+        solventName = solventData.nameinCoolProp
+        rhoc = PropsSI('rhomolar_critical', solventName) # the critical molar density of the solvent, in mol/m^3
+
+        # 1. Use the Abraham and Mintz LSERs to extrapolate the K-factor at  T = T_limit
+        Tlimit = 298. # the upper temperature limit for using the constant dHsolv and dSsolv assumptions
+        rho = PropsSI('Dmolar', 'T', Tlimit, 'Q', 0, solventName)# the molar density of the solvent, in mol/m^3
+        Pvap = PropsSI('P', 'T', Tlimit, 'Q', 0, solventName) # the vapor pressure of the solvent, in Pa
+        dGsolv = dHsolv298 - Tlimit * dSsolv298 # the free energy of solvation, in J/mol
+        K = math.exp(dGsolv298 / (Tlimit * constants.R)) / Pvap * constants.R * 298. * rho # K-factor
+        x = Tlimit * math.log(K) # Tln(K-factor), in K
+
+        # 2. Use the extrapolated point at T_limit and the critical limit of K-factor to find the linear relationship of Tln(K-factor) = D * (rho - rho_c) for T_transition < T < T_c
+        D = x / (rho - rhoc) # slope of the linear relationship, in K*m^3/mol
+
+        # 3. Find the 2nd order polynomial for 298 K < T < T_transition
+
+        # 3-1. Find the Tln(K-factor) value at T = 298 K
+
+        rho = PropsSI('Dmolar', 'T', T, 'Q', 0, solventName)
+        drho = rho - rhoc
+        Pvap = PropsSI('P', 'T', T, 'Q', 0, solventName)
+        Kfactor = math.exp(D * drho / T)
+        # Calculate the solvation free energies from K-factor list. The formula is:
+        # dGsolv(T) = R * T * ln( K-factor(T) * Pvap(T) / (R * T * rho(T)) )
+        # The solvation free energy is evaluated at the saturation curve, so it is only a function of temperature.
+        dGsolvT = constants.R * T * math.log(Kfactor * Pvap / (constants.R * T * rho))
+
+        return dGsolvT
+
+    def getdGsolvNothing(self, solventName, exptdG, exptT, T):
+
+        rhoc = PropsSI('rhomolar_critical', solventName) # the critical molar density of the solvent, in mol/m^3
+
+        # 1. Use the Abraham and Mintz LSERs to extrapolate the K-factor at  T = T_limit
+        Tlimit = exptT # the upper temperature limit for using the constant dHsolv and dSsolv assumptions
+        rho = PropsSI('Dmolar', 'T', Tlimit, 'Q', 0, solventName)# the molar density of the solvent, in mol/m^3
+        Pvap = PropsSI('P', 'T', Tlimit, 'Q', 0, solventName) # the vapor pressure of the solvent, in Pa
+        dGsolv298 = exptdG * 1000.
+        K = math.exp(dGsolv298 / (Tlimit * constants.R)) / Pvap * constants.R * Tlimit * rho # K-factor
+        x = Tlimit * math.log(K) # Tln(K-factor), in K
+
+        # 2. Use the extrapolated point at T_limit and the critical limit of K-factor to find the linear relationship of Tln(K-factor) = D * (rho - rho_c) for T_transition < T < T_c
+        D = x / (rho - rhoc) # slope of the linear relationship, in K*m^3/mol
+
+        # 3. Find the 2nd order polynomial for 298 K < T < T_transition
+
+        # 3-1. Find the Tln(K-factor) value at T = 298 K
+
+        rho = PropsSI('Dmolar', 'T', T, 'Q', 0, solventName)
+        drho = rho - rhoc
+        Pvap = PropsSI('P', 'T', T, 'Q', 0, solventName)
+        Kfactor = math.exp(D * drho / T)
+        # Calculate the solvation free energies from K-factor list. The formula is:
+        # dGsolv(T) = R * T * ln( K-factor(T) * Pvap(T) / (R * T * rho(T)) )
+        # The solvation free energy is evaluated at the saturation curve, so it is only a function of temperature.
+        dGsolvT = constants.R * T * math.log(Kfactor * Pvap / (constants.R * T * rho))
+
+        return dGsolvT
