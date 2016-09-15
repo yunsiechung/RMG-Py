@@ -103,7 +103,9 @@ quantumMechanics(
 
 options(
     units='si',
-    saveRestartPeriod=(2,'hour'),
+    saveRestartPeriod=None,
     generateOutputHTML=False,
     generatePlots=False,
+    saveSimulationProfiles=False,
+    saveEdgeSpecies=False,
 )
