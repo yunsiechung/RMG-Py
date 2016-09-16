@@ -344,3 +344,12 @@ class MopacMolPM6D3(MopacMolPMn):
     but for now it's the same as all the MOPAC PMn calculations, only pm6-d3
     """
     pm_method = 'pm6-d3'
+
+class MopacMolPM6DHPlus (MopacMolPMn):
+    """
+    Mopac PM6-DH+ calculations for molecules
+
+    This is a class of its own in case you wish to do anything differently,
+    but for now it's the same as all the MOPAC PMn calculations, only pm6-dh+
+    """
+    pm_method = 'pm6-dh+'
