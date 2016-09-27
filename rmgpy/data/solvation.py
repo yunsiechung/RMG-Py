@@ -1042,9 +1042,7 @@ class SolvationDatabase(object):
         # Calculate the K-factor using the appropriate polynomial at the specified temperature, T.
         # If T < T_transition, the 2nd order polynomial of Tln(K-factor) vs. drho is used.
         # If T > = T_transition, the linear equation is used. If T = T_critical, K-factor = 1.
-        KfactorCoeff = self.getSoluteKfactorCoefficients(soluteData, solventData)
-        [A, B, C] = KfactorCoeff.quadratic # 2nd order polynomial coefficients
-        D = KfactorCoeff.linear # linear fit slope
+        parameters, Dopt = self.findD(soluteData, solventData)
         solventName = solventData.nameinCoolProp
         Tc = self.getSolventTc(solventName) # critical temperature of the solvent, in K
         rhoc = PropsSI('rhomolar_critical', solventName) # the critical molar density of the solvent, in mol/m^3
@@ -1053,12 +1051,12 @@ class SolvationDatabase(object):
             rho = PropsSI('Dmolar', 'T', T, 'Q', 0, solventName) # molar density of the solvent, in mol/m^3
             drho = rho - rhoc # rho - rho_c, in mol/m^3
             Pvap = PropsSI('P', 'T', T, 'Q', 0, solventName) # vapor pressure of the solvent, in Pa
-            if T < KfactorCoeff.Ttransition.value_si:
-                Kfactor = math.exp((A * (drho ** 2.) + B * drho + C) / T)
+            if T < 400:
+                Kfactor = math.exp((parameters[0] + parameters[1]*(1-T/Tc)**0.355+parameters[2]*math.exp(1-T/Tc)*T**0.59) / T)
             elif T == Tc:
                 Kfactor = 1.
             else:
-                Kfactor = math.exp(D * drho / T)
+                Kfactor = math.exp(Dopt * drho / T)
             # Calculate the solvation free energies from K-factor list. The formula is:
             # dGsolv(T) = R * T * ln( K-factor(T) * Pvap(T) / (R * T * rho(T)) )
             # The solvation free energy is evaluated at the saturation curve, so it is only a function of temperature.
