@@ -1160,3 +1160,78 @@ class SolvationDatabase(object):
         dGsolvT = constants.R * T * math.log(Kfactor * Pvap / (constants.R * T * rho))
 
         return dGsolvT
+
+    def fitToHarveyForConstantD(self, soluteData, solventData, D, Tc, solventName):
+
+        Ttransition = 400. # in K
+
+        solvationCorrection298 = self.getSolvationCorrection298(soluteData, solventData)
+
+        dGsolv298 = solvationCorrection298.gibbs # in J/mol
+        dHsolv298 = solvationCorrection298.enthalpy # in J/mol
+        dSsolv298 = (dHsolv298 - dGsolv298) / 298. # in J/mol/K
+
+        T2 = 299. # in K
+
+        Amatrix = numpy.array([[1, (1-298./Tc)**0.355, math.exp(1-298./Tc)*(298.**0.59)],
+                    [0, -0.355/Tc * ((1-T2/Tc)**(-0.645)), math.exp(1-T2/Tc)*(0.59*T2**(-0.41)-T2**0.59/Tc)],
+                   [0, -0.355/Tc * ((1-Ttransition/Tc)**(-0.645)), math.exp(1-Ttransition/Tc)*(0.59*Ttransition**(-0.41)-Ttransition**0.59/Tc)]])
+
+        rho298 = PropsSI('Dmolar', 'T', 298., 'Q', 0, solventName)
+        Pvap298 = PropsSI('P', 'T', 298., 'Q', 0, solventName)
+        K298 = math.exp(dGsolv298 / (298. * constants.R)) / Pvap298 * constants.R * 298. * rho298
+        x1 = 298. * math.log(K298) # Tln(K-factor), in K
+
+        dGsolvT2 = dHsolv298 - dSsolv298*T2 # in J/mol
+        rho2 = PropsSI('Dmolar', 'T', T2, 'Q', 0, solventName)# the molar density of the solvent, in mol/m^3
+        Pvap2 = PropsSI('P', 'T', T2, 'Q', 0, solventName) # the vapor pressure of the solvent, in Pa
+        K2 = math.exp(dGsolvT2 / (T2 * constants.R)) / Pvap2 * constants.R * T2 * rho2 # K-factor
+        x2 = T2 * math.log(K2) # Tln(K-factor), in K
+        slope298 = (x2-x1) / (T2-298.)
+
+        T4 = Ttransition + 1.
+        rho3 = PropsSI('Dmolar', 'T', Ttransition, 'Q', 0, solventName)
+        rho4 = PropsSI('Dmolar', 'T', T4, 'Q', 0, solventName)
+        slopeTransition = D * (rho4-rho3) / (T4 - Ttransition)
+
+        bvector = numpy.array([x1, slope298, slopeTransition])
+
+        parameters, residues, rank, s = numpy.linalg.lstsq(Amatrix, bvector)
+
+        return parameters
+
+    def getResidual(self, D, soluteData, solventData, Tc, solventName):
+
+        Ttransition = 400. # in K
+        parameters = self.fitToHarveyForConstantD(soluteData, solventData, D, Tc, solventName)
+
+
+        # using Harvey-fit parameters
+        xTransition1 = parameters[0] + parameters[1]*(1-Ttransition/Tc)**0.355+parameters[2]*math.exp(1-Ttransition/Tc)*Ttransition**0.59
+        # using the aymptotic linear slope
+        rhoc = PropsSI('rhomolar_critical', solventName)
+        rhoTransition = PropsSI('Dmolar', 'T', Ttransition, 'Q', 0, solventName)
+        xTransition2 = D * (rhoTransition - rhoc)
+
+        res = math.fabs(xTransition1 - xTransition2)
+
+        return res
+
+    def findD(self, soluteData, solventData):
+
+
+        KfactorCoeff = self.getSoluteKfactorCoefficients(soluteData, solventData)
+        D = KfactorCoeff.linear
+
+        solventName = solventData.nameinCoolProp
+        Tc = self.getSolventTc(solventName)
+
+        import scipy.optimize
+        Dopt = scipy.optimize.fmin(self.getResidual, D, args=(soluteData, solventData, Tc, solventName,))
+
+        solventName = solventData.nameinCoolProp
+        Tc = self.getSolventTc(solventName)
+
+        parameters = self.fitToHarveyForConstantD(soluteData, solventData, Dopt, Tc, solventName)
+
+        return parameters, Dopt
