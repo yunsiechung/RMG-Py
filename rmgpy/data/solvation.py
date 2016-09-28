@@ -1051,7 +1051,7 @@ class SolvationDatabase(object):
             rho = PropsSI('Dmolar', 'T', T, 'Q', 0, solventName) # molar density of the solvent, in mol/m^3
             drho = rho - rhoc # rho - rho_c, in mol/m^3
             Pvap = PropsSI('P', 'T', T, 'Q', 0, solventName) # vapor pressure of the solvent, in Pa
-            if T < 400:
+            if T < 420:
                 Kfactor = math.exp((parameters[0] + parameters[1]*(1-T/Tc)**0.355+parameters[2]*math.exp(1-T/Tc)*T**0.59) / T)
             elif T == Tc:
                 Kfactor = 1.
@@ -1161,7 +1161,7 @@ class SolvationDatabase(object):
 
     def fitToHarveyForConstantD(self, soluteData, solventData, D, Tc, solventName):
 
-        Ttransition = 400. # in K
+        Ttransition = 420. # in K
 
         solvationCorrection298 = self.getSolvationCorrection298(soluteData, solventData)
 
@@ -1200,7 +1200,7 @@ class SolvationDatabase(object):
 
     def getResidual(self, D, soluteData, solventData, Tc, solventName):
 
-        Ttransition = 400. # in K
+        Ttransition = 420. # in K
         parameters = self.fitToHarveyForConstantD(soluteData, solventData, D, Tc, solventName)
 
 
@@ -1225,7 +1225,7 @@ class SolvationDatabase(object):
         Tc = self.getSolventTc(solventName)
 
         import scipy.optimize
-        Dopt = scipy.optimize.fmin(self.getResidual, D, args=(soluteData, solventData, Tc, solventName,))
+        Dopt = scipy.optimize.fmin(self.getResidual, D, args=(soluteData, solventData, Tc, solventName,), disp=False)
 
         solventName = solventData.nameinCoolProp
         Tc = self.getSolventTc(solventName)
@@ -1233,3 +1233,45 @@ class SolvationDatabase(object):
         parameters = self.fitToHarveyForConstantD(soluteData, solventData, Dopt, Tc, solventName)
 
         return parameters, Dopt
+
+    def getSolventThermo(self, solventData, gasWilhoit):
+        """
+        Given the soluteData, solventData, and gasWilhoit (gas phase thermo) objects,
+        it applies the solvation correction and returns the wilhoit obeject for the corrected thermo
+        """
+
+        solventName = solventData.nameinCoolProp
+        Tc = self.getSolventTc(solventName)
+        Tlist = numpy.linspace(298., Tc, 7, True)
+        dGsolvList = self.getSelfSolvationFreeEnergy(solventData, Tlist)
+        dGgasList = [gasWilhoit.getFreeEnergy(T) for T in Tlist]
+        dGcorrectedList = [dGsolvList[i] + dGgasList[i] for i in range(Tlist.shape[0])]
+        correctedNASA = NASA().fitToFreeEnergyData(Tlist, numpy.asarray(dGcorrectedList), 298., Tc)
+        correctedNASA.Cp0 = gasWilhoit.Cp0
+        correctedNASA.CpInf = gasWilhoit.CpInf
+
+        correctedWilhoit = correctedNASA.toWilhoit()
+        correctedWilhoit.Tmin = quantity.ScalarQuantity(298., 'K')
+        correctedWilhoit.Tmax = quantity.ScalarQuantity(Tc, 'K')
+
+        return correctedWilhoit, correctedNASA
+
+    def getSelfSolvationFreeEnergy(self, solventData, Tlist):
+        """
+        Given the instances of Species, SoluteData, and the temperature list, it returns the list of solvation gibbs
+        free energy at the specified temperatures in Tlist.
+        """
+
+        solventName = solventData.nameinCoolProp
+        Tc = self.getSolventTc(solventName) # critical temperature of the solvent, in K
+        dGsolvList = [] # in J/mol
+        for T in Tlist:
+            if T == Tc:
+                dGsolvList.append(0.)
+            else:
+                rhoGas = PropsSI('Dmolar', 'T', T, 'Q', 1, solventName) # in mol/m^3
+                rhoLiquid = PropsSI('Dmolar', 'T', T, 'Q', 0, solventName) # in mol/m^3
+                dGsolv = constants.R * T * math.log( rhoGas / rhoLiquid )
+                dGsolvList.append(dGsolv)
+
+        return dGsolvList

@@ -34,9 +34,14 @@ def processThermoData(spc, thermo0, thermoClass=NASA):
         #logging.info("Making solvent correction for {0}".format(Species.solventName))
         soluteData = solvationDatabase.getSoluteData(spc)
         if solvent.solventData.inCoolProp:
-            output = solvationDatabase.getSolvationThermo(soluteData, solvent.solventData, wilhoit)
-            wilhoit =  output[0]
-            NASAcorrected = output[1]
+            if spc.label == solvent.solventName:
+                output = solvationDatabase.getSolventThermo(solvent.solventData, wilhoit)
+                wilhoit =  output[0]
+                NASAcorrected = output[1]
+            else:
+                output = solvationDatabase.getSolvationThermo(soluteData, solvent.solventData, wilhoit)
+                wilhoit =  output[0]
+                NASAcorrected = output[1]
         else:
             solvationCorrection = solvationDatabase.getSolvationCorrection298(soluteData, solvent.solventData)
             # correction is added to the entropy and enthalpy
