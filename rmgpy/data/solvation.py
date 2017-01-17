@@ -35,10 +35,14 @@
 import os.path
 import math
 import logging
+import numpy
 import rmgpy.constants as constants
 from rmgpy.species import Species
 from copy import deepcopy
 from base import Database, Entry, makeLogicNode, DatabaseError
+from CoolProp.CoolProp import PropsSI
+from rmgpy.thermo.nasa import NASA
+import rmgpy.quantity as quantity
 
 from rmgpy.molecule import Molecule, Atom, Bond, Group, atomTypes
 
@@ -197,6 +201,29 @@ class SolvationCorrection():
         self.enthalpy = enthalpy
         self.entropy = entropy
         self.gibbs = gibbs
+
+class KfactorCoefficients():
+    """
+    Stores 4 coefficients (A, B, C, D) in the following K-factor relationships and
+    the transition temperature (Ttransition) in K.
+    1) 298 K <= T < Ttransition : Harvey's semi-empirical relationship
+                    Tln(K-factor) = A + B*(1 + T/Tc)^(0.355) + C*T^(0.59)*exp(1 - T/Tc)
+    2) Ttransition <= T < T_c : Japas and Levelt Sengers' linear relationship
+                    Tln(K-factor) = D * (rho - rho_c)
+    ** For details, see the documentation about Liquid Phase Systems **
+
+    Relevant definitions:
+    rho = molar density of the solvent [=] mol / m^3
+    rho_c = critical molar density of the solvent [=] mol / m^3
+    Tc = critical temperature of the solvent [=] K
+    K-factor = y_solute / x_solute.
+    y_solute = mole fraction of the solute in a gas phase at equilibrium in a binary dilute mixture
+    x_solute = mole fraction of the solute at equilibrium in a binary dilute mixture
+    """
+    def __init__(self, A=None, B=None, C=None, D=None, Ttransition=None):
+        self.lowTregion = [A, B, C]
+        self.highTregion = D
+        self.Ttransition = Ttransition
             
 class SoluteData():
     """
@@ -918,7 +945,7 @@ class SolvationDatabase(object):
         delS = (delH-delG)/298
         return delS
     
-    def getSolvationCorrection(self, soluteData, solventData):
+    def getSolvationCorrection298(self, soluteData, solventData):
         """ 
         Given a soluteData and solventData object, calculates the enthalpy, entropy,
         and Gibbs free energy of solvation at 298 K. Returns a SolvationCorrection
@@ -942,3 +969,251 @@ class SolvationDatabase(object):
             if not solvent.solventSpecies.isIsomorphic(solventStructure):
                 raise DatabaseError('The molecular structure of the solvent {0!r} does not match the one from the solvent database.'
                                     ''.format(solvent.solventName))
+
+    def getSolventTc(self, nameinCoolProp):
+        """
+        Given the solvent's name in CoolProp, it returns the critical temperature of the solvent in K
+        """
+        Tc = PropsSI('T_critical', nameinCoolProp)
+        return Tc
+
+    def getSolvationThermo(self, soluteData, solventData, gasWilhoit):
+        """
+        Given the soluteData, solventData, and gasWilhoit (gas phase thermo) objects,
+        it applies the solvation correction to solute species and returns the Wilhoit and NASA
+        objects for the solute's corrected thermo.
+        This is used when the solvent can be found in CoolProp.
+        """
+
+        solventName = solventData.nameinCoolProp
+        Tc = self.getSolventTc(solventName)
+        Tlist = numpy.linspace(298., Tc, 7, True)
+        dGsolvList = self.getSolvationFreeEnergy(soluteData, solventData, Tlist) # in J/mol
+        dGgasList = [gasWilhoit.getFreeEnergy(T) for T in Tlist] # in J/mol
+        dGcorrectedList = [dGsolvList[i] + dGgasList[i] for i in range(Tlist.shape[0])]
+        correctedNASA = NASA().fitToFreeEnergyData(Tlist, numpy.asarray(dGcorrectedList), 298., Tc)
+        correctedNASA.Cp0 = gasWilhoit.Cp0
+        correctedNASA.CpInf = gasWilhoit.CpInf
+
+        correctedWilhoit = correctedNASA.toWilhoit()
+        correctedWilhoit.Tmin = quantity.ScalarQuantity(298., 'K')
+        correctedWilhoit.Tmax = quantity.ScalarQuantity(Tc, 'K')
+
+        return correctedWilhoit, correctedNASA
+
+    def getSolvationFreeEnergy(self, soluteData, solventData, Tlist):
+        """
+        Given the instances of soluteData, solventData, and the temperature list, it returns
+        the list of corresponding solvation gibbs free energy for the solute species in J/mol.
+
+        Solvation free energy is calculated by using the following relationships:
+        1) 298 K <= T < Ttransition : Harvey's semi-empirical relationship
+                    Tln(K-factor) = A + B*(1 + T/Tc)^(0.355) + C*T^(0.59)*exp(1 - T/Tc)
+        2) Ttransition <= T < T_c : Japas and Levelt Sengers' linear aymptotic relationship
+                    Tln(K-factor) = D * (rho - rho_c)
+
+        ** For details, see the documentation about Liquid Phase Systems **
+
+        Relevant definitions:
+        rho = molar density of the solvent [=] mol / m^3
+        rho_c = critical molar density of the solvent [=] mol / m^3
+        Tc = critical temperature of the solvent [=] K
+        K-factor = y_solute / x_solute.
+        y_solute = mole fraction of the solute in a gas phase at equilibrium in a binary dilute mixture
+        x_solute = mole fraction of the solute at equilibrium in a binary dilute mixture
+        Pvap = vapor pressure of the solvent [=] Pa
+        """
+
+        # 1. Find the optimal parameters
+        KfactorCoeff = self.findSolvationParam(soluteData, solventData)
+        A, B, C = KfactorCoeff.lowTregion
+        D = KfactorCoeff.highTregion
+        Ttransition = KfactorCoeff.Ttransition
+
+        # 2. Calculate the K-factor in each temperature region using the optimized parameters.
+        # Then convert K-factor into solvation free energy (dGsolv)
+        solventName = solventData.nameinCoolProp
+        Tc = self.getSolventTc(solventName) # critical temperature of the solvent, in K
+        rhoc = PropsSI('rhomolar_critical', solventName) # the critical molar density of the solvent, in mol/m^3
+        dGsolvList = []
+        for T in Tlist:
+            rho = PropsSI('Dmolar', 'T', T, 'Q', 0, solventName) # molar density of the solvent, in mol/m^3
+            drho = rho - rhoc # rho - rho_c, in mol/m^3
+            Pvap = PropsSI('P', 'T', T, 'Q', 0, solventName) # vapor pressure of the solvent, in Pa
+            if T < Ttransition:
+                Kfactor = math.exp((A + B*(1-T/Tc)**0.355 + C*math.exp(1-T/Tc)*T**0.59) / T)
+            elif T == Tc:
+                Kfactor = 1.
+            else:
+                Kfactor = math.exp(D * drho / T)
+            # Calculate the solvation free energies from K-factor list. The formula is:
+            # dGsolv(T) = R * T * ln( K-factor(T) * Pvap(T) / (R * T * rho(T)) )
+            # The solvation free energy is evaluated at the saturation curve, so it is only a function of temperature.
+            dGsolv = constants.R * T * math.log(Kfactor * Pvap / (constants.R * T * rho))
+            dGsolvList.append(dGsolv) # in J/mol
+
+        return dGsolvList
+
+    def findSolvationParam(self, soluteData, solventData):
+        """
+        Given the soluteData and solventData objects, it finds the optimal parameters for the K-factor
+        relationships. The parameters (A, B, C, D) are determined by enforcing the following equality constraints:
+            1) x(298K, Harvery correlation) = x(298K, Abarham LSER)
+            2) dx/dT (298K, Harvey correlation) = dx/dT (298K, Mintz LSER)
+            3) x/dT (Transition, Harvey correlation) = x/dT (Ttransition, Japas and Levelt Sengers' correlation)
+            4) x(Transition, Harvey correlation) = x(Ttransition, Japas and Levelt Sengers' correlation)
+        where x = Tln(K-factor) in K. x is used in place of dGsolv to reduce calculation steps.
+        Because Harvey's correlation is linear with respect to A, B, and C, its parameters can be
+        directly calculated using the linear solver if the value of D is known. The optimal value of D is
+        determined by using the nonlinear solver and minimizing the residual function.
+        """
+
+        # 1) Make an initial guess for D.
+        # Use the Abraham and Mintz LSERs to extrapolate the K-factor at 350 K, an approximate upper
+        # temperature limit for using the constant dHsolv and dSsolv assumptions.
+        # Use the extrapolated point at 350 K and the critical limit of K-factor to find the make an
+        # initial guess for D in the linear relationship of Tln(K-factor) = D * (rho - rho_c)
+        solvationCorrection298 = self.getSolvationCorrection298(soluteData, solventData)
+        dHsolv298 = solvationCorrection298.enthalpy # the enthalpy of solvation, at 298K, in J/mol
+        dSsolv298 = solvationCorrection298.entropy # the entropy of solvation, at 298K, in J/mol/K
+        solventName = solventData.nameinCoolProp
+        rhoc = PropsSI('rhomolar_critical', solventName) # the critical molar density of the solvent, in mol/m^3
+        Tlimit = 350. # the upper temperature limit for using the constant dHsolv and dSsolv assumptions
+        rho = PropsSI('Dmolar', 'T', Tlimit, 'Q', 0, solventName)# the molar density of the solvent, in mol/m^3
+        Pvap = PropsSI('P', 'T', Tlimit, 'Q', 0, solventName) # the vapor pressure of the solvent, in Pa
+        dGsolvTlimit = dHsolv298 - Tlimit * dSsolv298 # extrapolated free energy of solvation, in J/mol
+        K = math.exp(dGsolvTlimit / (Tlimit * constants.R)) / Pvap * constants.R * Tlimit * rho # K-factor
+        x = Tlimit * math.log(K) # Tln(K-factor), in K
+        guessD = x / (rho - rhoc) # slope of the linear relationship, in K*m^3/mol
+
+        # 2. Find the optimal value of D from the initial guess using the residual function and
+        # nonlinear solver
+        Tc = self.getSolventTc(solventName)
+        Ttransition = 298 + (Tc - 298)*0.35 # in K
+        import scipy.optimize
+        optimalD = scipy.optimize.fmin(self.getResidual, guessD, args=(soluteData, solventData, Tc, solventName, Ttransition,), disp=False)
+
+        # 3. Find the remaining parameters, A, B, and C, by using the optimal value of D
+        paramLowT = self.fitToHarveyForConstantD(soluteData, solventData, optimalD, Tc, solventName, Ttransition)
+        KfactorCoeff = KfactorCoefficients()
+        KfactorCoeff.lowTregion = paramLowT
+        KfactorCoeff.highTregion = optimalD
+        KfactorCoeff.Ttransition = Ttransition
+
+        return KfactorCoeff
+
+    def getResidual(self, D, soluteData, solventData, Tc, solventName, Ttransition):
+        """
+        Given the value of D, soluteData object, solventData object, solventData object, Tc, solventName,
+        and Ttransition, it solves for the remaining parameters, A, B, and C, by using fitToHarveyForConstantD
+        method and returns the residual of the following equality constraint:
+            x(@Ttransition, Harvey correlation) = x(@Ttransition, Japas and Levelt Sengers' correlation)
+        where x = Tln(K-factor) in K.
+        """
+
+        paramLowT = self.fitToHarveyForConstantD(soluteData, solventData, D, Tc, solventName, Ttransition)
+        # Calculates Tln(K-factor) using the Harvey's correlation at Ttransition
+        xTransition1 = paramLowT[0] + paramLowT[1]*(1-Ttransition/Tc)**0.355+paramLowT[2]*math.exp(1-Ttransition/Tc)*Ttransition**0.59
+        # Calculates Tln(K-factor) using the Harvey's correlation at Ttransition
+        rhoc = PropsSI('rhomolar_critical', solventName)
+        rhoTransition = PropsSI('Dmolar', 'T', Ttransition, 'Q', 0, solventName)
+        xTransition2 = D * (rhoTransition - rhoc)
+        res = math.fabs(xTransition1 - xTransition2) # the residual must be an absolute value
+
+        return res
+
+    def fitToHarveyForConstantD(self, soluteData, solventData, D, Tc, solventName, Ttransition):
+        """
+        Given the value of D, soluteData object, solventData object, solventData object, Tc, solventName,
+        and Ttransition, it solves for the remaining parameters, A, B, and C, by using the following
+        equality constraints:
+            1) x(298K, Harvery correlation) = x(298K, Abarham LSER)
+            2) dx/dT (298K, Harvey correlation) = dx/dT (298K, Mintz LSER)
+            3) dx/dT (Transition, Harvey correlation) = dx/dT (Ttransition, Japas and Levelt Sengers' correlation)
+        where x = Tln(K-factor) in K.
+        """
+
+        # 1) Determine the terms in A matrix from the Harvey's semi-empirical correlation.
+        T1 = 298. # in K
+        T2 = 299. # in K
+        Amatrix = numpy.array([[1, (1-T1/Tc)**0.355, math.exp(1-T1/Tc)*(T1**0.59)],
+                    [0, -0.355/Tc * ((1-T2/Tc)**(-0.645)), math.exp(1-T2/Tc)*(0.59*T2**(-0.41)-T2**0.59/Tc)],
+                   [0, -0.355/Tc * ((1-Ttransition/Tc)**(-0.645)), math.exp(1-Ttransition/Tc)*(0.59*Ttransition**(-0.41)-Ttransition**0.59/Tc)]])
+
+        # 2) Determine the terms in b vector.
+        # 2-1) Calculate Tln(K-factor) at 298 K using the Abraham LSER
+        solvationCorrection298 = self.getSolvationCorrection298(soluteData, solventData)
+        dGsolv298 = solvationCorrection298.gibbs # in J/mol
+        dHsolv298 = solvationCorrection298.enthalpy # in J/mol
+        dSsolv298 = solvationCorrection298.entropy # in J/mol/K
+        rho298 = PropsSI('Dmolar', 'T', T1, 'Q', 0, solventName)
+        Pvap298 = PropsSI('P', 'T', T1, 'Q', 0, solventName)
+        K298 = math.exp(dGsolv298 / (T1 * constants.R)) / Pvap298 * constants.R * T1 * rho298
+        x1 = T1 * math.log(K298) # Tln(K-factor) at 298 K, in K
+        # 2-2) Calculate d(Tln(K-factor))/dT at 298K using the Mintz LSER.
+        # The slope is estimated from the finite difference method with dT = 1 K
+        dGsolvT2 = dHsolv298 - dSsolv298*T2
+        rho2 = PropsSI('Dmolar', 'T', T2, 'Q', 0, solventName)
+        Pvap2 = PropsSI('P', 'T', T2, 'Q', 0, solventName)
+        K2 = math.exp(dGsolvT2 / (T2 * constants.R)) / Pvap2 * constants.R * T2 * rho2
+        x2 = T2 * math.log(K2) # Tln(K-factor) at 299 K, in K
+        slope298 = (x2-x1) / (T2-298.)
+        # 2-3) Calculate d(Tln(K-factor))/dT at Ttransition using the Japas and Levelt Sengers' correlation
+        # The slope is estimated from the finite difference method with dT = 1 K
+        T4 = Ttransition + 1.
+        rho3 = PropsSI('Dmolar', 'T', Ttransition, 'Q', 0, solventName)
+        rho4 = PropsSI('Dmolar', 'T', T4, 'Q', 0, solventName)
+        slopeTransition = D * (rho4-rho3) / (T4 - Ttransition)
+        bvector = numpy.array([x1, slope298, slopeTransition])
+
+        # 3) The parameters are calculated by solving: Ax = b
+        parameters, residues, rank, s = numpy.linalg.lstsq(Amatrix, bvector)
+
+        return parameters
+
+    def getSolventThermo(self, solventData, gasWilhoit):
+        """
+        Given the solventData and gasWilhoit (gas phase thermo) objects,
+        it applies the solvation correction to solvent species and returns the Wilhoit and NASA
+        objects for the corrected solvent thermo.
+        This is used if the solvent can be found in CoolProp.
+        """
+
+        solventName = solventData.nameinCoolProp
+        Tc = self.getSolventTc(solventName)
+        Tlist = numpy.linspace(298., Tc, 7, True)
+        dGsolvList = self.getSelfSolvationFreeEnergy(solventData, Tlist) # J/mol
+        dGgasList = [gasWilhoit.getFreeEnergy(T) for T in Tlist] # J/mol
+        dGcorrectedList = [dGsolvList[i] + dGgasList[i] for i in range(Tlist.shape[0])]
+        correctedNASA = NASA().fitToFreeEnergyData(Tlist, numpy.asarray(dGcorrectedList), 298., Tc)
+        correctedNASA.Cp0 = gasWilhoit.Cp0
+        correctedNASA.CpInf = gasWilhoit.CpInf
+
+        correctedWilhoit = correctedNASA.toWilhoit()
+        correctedWilhoit.Tmin = quantity.ScalarQuantity(298., 'K')
+        correctedWilhoit.Tmax = quantity.ScalarQuantity(Tc, 'K')
+
+        return correctedWilhoit, correctedNASA
+
+    def getSelfSolvationFreeEnergy(self, solventData, Tlist):
+        """
+        Given the instances of solventData and the temperature list, it returns the
+        list of solvation gibbs free energy in J/mol at each temperature for the solvent species.
+        The solvation free energy of the solvent species can be directly computed from
+        their gas-liquid partition coefficients (equilibrium ratio of the gas and liquid
+        phase concentration) obtained from CoolProp.
+        """
+
+        solventName = solventData.nameinCoolProp
+        Tc = self.getSolventTc(solventName) # critical temperature of the solvent, in K
+        dGsolvList = [] # in J/mol
+        for T in Tlist:
+            if T == Tc:
+                dGsolvList.append(0.) # for solvent species, the solvation free energy approaches zero as T approaches Tc
+            else:
+                rhoGas = PropsSI('Dmolar', 'T', T, 'Q', 1, solventName) # gas phase molar density (concentration) in mol/m^3
+                rhoLiquid = PropsSI('Dmolar', 'T', T, 'Q', 0, solventName) # liquid phase molar density (concentration) in mol/m^3
+                dGsolv = constants.R * T * math.log( rhoGas / rhoLiquid ) # in J/mol
+                dGsolvList.append(dGsolv)
+
+        return dGsolvList
