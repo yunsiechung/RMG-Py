@@ -191,8 +191,8 @@ multiplicity 2
         soluteData = self.database.getSoluteDataFromGroups(species)
         self.assertTrue(soluteData is not None)
 
-    def testCorrectionGeneration(self):
-        "Test we can estimate solvation thermochemistry."
+    def testCorrectionGeneration298(self):
+        "Test we can estimate solvation thermochemistry at 298 K."
         self.testCases = [
         # solventName, soluteName, soluteSMILES, Hsolv, Gsolv
         ['water', 'acetic acid', 'C(C)(=O)O', -56500, -6700*4.184],
@@ -207,9 +207,9 @@ multiplicity 2
             species = Species(molecule=[Molecule(SMILES=smiles)])
             soluteData = self.database.getSoluteData(species)
             solventData = self.database.getSolventData(solventName)
-            solvationCorrection = self.database.getSolvationCorrection(soluteData, solventData)
-            self.assertAlmostEqual(solvationCorrection.enthalpy / 10000., H / 10000., 0, msg="Solvation enthalpy discrepancy ({2:.0f}!={3:.0f}) for {0} in {1}".format(soluteName, solventName, solvationCorrection.enthalpy, H))  #0 decimal place, in 10kJ.
-            self.assertAlmostEqual(solvationCorrection.gibbs / 10000., G / 10000., 0, msg="Solvation Gibbs free energy discrepancy ({2:.0f}!={3:.0f}) for {0} in {1}".format(soluteName, solventName, solvationCorrection.gibbs, G))
+            solvationCorrection298 = self.database.getSolvationCorrection298(soluteData, solventData)
+            self.assertAlmostEqual(solvationCorrection298.enthalpy / 10000., H / 10000., 0, msg="Solvation enthalpy discrepancy ({2:.0f}!={3:.0f}) for {0} in {1}".format(soluteName, solventName, solvationCorrection298.enthalpy, H))  #0 decimal place, in 10kJ.
+            self.assertAlmostEqual(solvationCorrection298.gibbs / 10000., G / 10000., 0, msg="Solvation Gibbs free energy discrepancy ({2:.0f}!={3:.0f}) for {0} in {1}".format(soluteName, solventName, solvationCorrection298.gibbs, G))
 
 
     def testSolventMolecule(self):
@@ -264,6 +264,7 @@ multiplicity 2
         solvent.solventSpecies = Species().fromSMILES('CCCCCCCC')
         self.database.checkSolventStructure(solvent)
 
+    
 
 #####################################################
 
