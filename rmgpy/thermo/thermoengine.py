@@ -39,10 +39,16 @@ def processThermoData(spc, thermo0, solventThermoEstimator, thermoClass=NASA):
         solvationDatabase = getDB('solvation')
         #logging.info("Making solvent correction for {0}".format(solvent.solventName))
         soluteData = solvationDatabase.getSoluteData(spc)
-        solvationCorrection = solvationDatabase.getSolvationCorrection(soluteData, solvent.solventData)
-        # correction is added to the entropy and enthalpy
-        wilhoit.S0.value_si = (wilhoit.S0.value_si + solvationCorrection.entropy)
-        wilhoit.H0.value_si = (wilhoit.H0.value_si + solvationCorrection.enthalpy)
+        if solvent.solventData.inCoolProp:
+            if spc.label == solvent.solventName: # the species is the solvent
+                wilhoit, nasa = solvationDatabase.getSolventThermo(solvent.solventData, wilhoit)
+            else: # the species is the solute
+                wilhoit, nasa = solvationDatabase.getSolvationThermo(soluteData, solvent.solventData, wilhoit)
+        else:
+            solvationCorrection = solvationDatabase.getSolvationCorrection298(soluteData, solvent.solventData)
+            # correction is added to the entropy and enthalpy
+            wilhoit.S0.value_si = (wilhoit.S0.value_si + solvationCorrection.entropy)
+            wilhoit.H0.value_si = (wilhoit.H0.value_si + solvationCorrection.enthalpy)
         
     # Compute E0 by extrapolation to 0 K
     if spc.conformer is None:
@@ -60,7 +66,10 @@ def processThermoData(spc, thermo0, solventThermoEstimator, thermoClass=NASA):
                 if thermo.E0 is None:
                     thermo.E0 = wilhoit.E0
             else:
-                thermo = wilhoit.toNASA(Tmin=100.0, Tmax=5000.0, Tint=1000.0)
+                if solvent.solventData.inCoolProp:
+                    thermo = nasa
+                else:
+                    thermo = wilhoit.toNASA(Tmin=100.0, Tmax=5000.0, Tint=1000.0)
         else: 
             #gas phase with species matching thermo library keep the NASA from library or convert if group additivity
             if "Thermo library" in thermo0.comment and isinstance(thermo0,NASA):

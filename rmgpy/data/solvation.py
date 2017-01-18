@@ -987,17 +987,33 @@ class SolvationDatabase(object):
 
         solventName = solventData.nameinCoolProp
         Tc = self.getSolventTc(solventName)
-        Tlist = numpy.linspace(298., Tc, 7, True)
-        dGsolvList = self.getSolvationFreeEnergy(soluteData, solventData, Tlist) # in J/mol
-        dGgasList = [gasWilhoit.getFreeEnergy(T) for T in Tlist] # in J/mol
-        dGcorrectedList = [dGsolvList[i] + dGgasList[i] for i in range(Tlist.shape[0])]
-        correctedNASA = NASA().fitToFreeEnergyData(Tlist, numpy.asarray(dGcorrectedList), 298., Tc)
+        Tmid = (Tc+298)/2
+        Tlist1 = numpy.linspace(298., Tmid, 7, True)
+        Tlist2 = numpy.linspace(Tmid, Tc, 7, True)
+        dGsolvList1 = self.getSolvationFreeEnergy(soluteData, solventData, Tlist1) # in J/mol
+        dGsolvList2 = self.getSolvationFreeEnergy(soluteData, solventData, Tlist2) # in J/mol
+        dGgasList1 = [gasWilhoit.getFreeEnergy(T) for T in Tlist1] # in J/mol
+        dGgasList2 = [gasWilhoit.getFreeEnergy(T) for T in Tlist2] # in J/mol
+        dGcorrectedList1 = [dGsolvList1[i] + dGgasList1[i] for i in range(Tlist1.shape[0])]
+        dGcorrectedList2 = [dGsolvList2[i] + dGgasList2[i] for i in range(Tlist2.shape[0])]
+        correctedNASA1 = NASA().fitToFreeEnergyData(Tlist1, numpy.asarray(dGcorrectedList1), 298., Tmid)
+        correctedNASA2 = NASA().fitToFreeEnergyData(Tlist2, numpy.asarray(dGcorrectedList2), 298., Tc)
+
+        correctedNASA = NASA()
+        correctedNASA.poly1 = correctedNASA1.poly1
+        correctedNASA.poly2 = correctedNASA2.poly1
+        correctedNASA.poly1.Tmin = quantity.ScalarQuantity(298., 'K')
+        correctedNASA.poly1.Tmax = quantity.ScalarQuantity(Tmid, 'K')
+        correctedNASA.poly2.Tmin = quantity.ScalarQuantity(Tmid, 'K')
+        correctedNASA.poly2.Tmax = quantity.ScalarQuantity(5000.0, 'K')
         correctedNASA.Cp0 = gasWilhoit.Cp0
         correctedNASA.CpInf = gasWilhoit.CpInf
+        correctedNASA.Tmin = quantity.ScalarQuantity(298., 'K')
+        correctedNASA.Tmax = quantity.ScalarQuantity(5000.0, 'K')
 
         correctedWilhoit = correctedNASA.toWilhoit()
         correctedWilhoit.Tmin = quantity.ScalarQuantity(298., 'K')
-        correctedWilhoit.Tmax = quantity.ScalarQuantity(Tc, 'K')
+        correctedWilhoit.Tmax = quantity.ScalarQuantity(5000.0, 'K')
 
         return correctedWilhoit, correctedNASA
 
@@ -1181,17 +1197,33 @@ class SolvationDatabase(object):
 
         solventName = solventData.nameinCoolProp
         Tc = self.getSolventTc(solventName)
-        Tlist = numpy.linspace(298., Tc, 7, True)
-        dGsolvList = self.getSelfSolvationFreeEnergy(solventData, Tlist) # J/mol
-        dGgasList = [gasWilhoit.getFreeEnergy(T) for T in Tlist] # J/mol
-        dGcorrectedList = [dGsolvList[i] + dGgasList[i] for i in range(Tlist.shape[0])]
-        correctedNASA = NASA().fitToFreeEnergyData(Tlist, numpy.asarray(dGcorrectedList), 298., Tc)
+        Tmid = (Tc+298)/2
+        Tlist1 = numpy.linspace(298., Tmid, 7, True)
+        Tlist2 = numpy.linspace(Tmid, Tc, 7, True)
+        dGsolvList1 = self.getSelfSolvationFreeEnergy(solventData, Tlist1) # in J/mol
+        dGsolvList2 = self.getSelfSolvationFreeEnergy(solventData, Tlist2) # in J/mol
+        dGgasList1 = [gasWilhoit.getFreeEnergy(T) for T in Tlist1] # in J/mol
+        dGgasList2 = [gasWilhoit.getFreeEnergy(T) for T in Tlist2] # in J/mol
+        dGcorrectedList1 = [dGsolvList1[i] + dGgasList1[i] for i in range(Tlist1.shape[0])]
+        dGcorrectedList2 = [dGsolvList2[i] + dGgasList2[i] for i in range(Tlist2.shape[0])]
+        correctedNASA1 = NASA().fitToFreeEnergyData(Tlist1, numpy.asarray(dGcorrectedList1), 298., Tmid)
+        correctedNASA2 = NASA().fitToFreeEnergyData(Tlist2, numpy.asarray(dGcorrectedList2), 298., Tc)
+
+        correctedNASA = NASA()
+        correctedNASA.poly1 = correctedNASA1.poly1
+        correctedNASA.poly2 = correctedNASA2.poly1
+        correctedNASA.poly1.Tmin = quantity.ScalarQuantity(298., 'K')
+        correctedNASA.poly1.Tmax = quantity.ScalarQuantity(Tmid, 'K')
+        correctedNASA.poly2.Tmin = quantity.ScalarQuantity(Tmid, 'K')
+        correctedNASA.poly2.Tmax = quantity.ScalarQuantity(5000.0, 'K')
         correctedNASA.Cp0 = gasWilhoit.Cp0
         correctedNASA.CpInf = gasWilhoit.CpInf
+        correctedNASA.Tmin = quantity.ScalarQuantity(298., 'K')
+        correctedNASA.Tmax = quantity.ScalarQuantity(5000.0, 'K')
 
         correctedWilhoit = correctedNASA.toWilhoit()
         correctedWilhoit.Tmin = quantity.ScalarQuantity(298., 'K')
-        correctedWilhoit.Tmax = quantity.ScalarQuantity(Tc, 'K')
+        correctedWilhoit.Tmax = quantity.ScalarQuantity(5000.0, 'K')
 
         return correctedWilhoit, correctedNASA
 
