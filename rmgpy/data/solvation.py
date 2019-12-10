@@ -538,7 +538,13 @@ class SolvationDatabase(object):
             'nonacentered': SoluteGroups(label='nonacentered').load(os.path.join(path, 'nonacentered.py'),
                                                                     self.local_context, self.global_context),
             'radical': SoluteGroups(label='radical').load(os.path.join(path, 'radical.py'),
-                                                          self.local_context, self.global_context)
+                                                          self.local_context, self.global_context),
+            'group': SoluteGroups(label='group').load(os.path.join(path, 'group.py'),
+                                                          self.local_context, self.global_context),
+            'ring': SoluteGroups(label='ring').load(os.path.join(path, 'ring.py'),
+                                                          self.local_context, self.global_context),
+            'polycyclic': SoluteGroups(label='polycyclic').load(os.path.join(path, 'polycyclic.py'),
+                                                          self.local_context, self.global_context),
         }
 
     def save(self, path):
