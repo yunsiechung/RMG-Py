@@ -37,7 +37,7 @@ from copy import deepcopy
 
 import rmgpy.constants as constants
 from rmgpy.data.base import Database, Entry, make_logic_node, DatabaseError
-from rmgpy.molecule import Molecule, Group, ATOMTYPES
+from rmgpy.molecule import Molecule, Group, ATOMTYPES, Bond
 from rmgpy.species import Species
 
 
@@ -127,6 +127,371 @@ def process_old_library_entry(data):
     """
     raise NotImplementedError()
 
+def is_ring_partial_matched(ring, matched_group):
+        """
+        An example of ring partial match is tricyclic ring is matched by a bicyclic group
+        usually because of not enough data in polycyclic tree. The method takes a matched group 
+        returned from descend_tree and the ring (a list of non-hydrogen atoms in the ring)
+        """
+        # if matched group has less atoms than the target ring
+        # it's surely a partial match
+        if len(ring) > len(matched_group.atoms):
+            return True
+        else:
+            submol_ring, _ = convert_ring_to_sub_molecule(ring)
+            sssr = submol_ring.get_smallest_set_of_smallest_rings()
+            sssr_grp = matched_group.get_smallest_set_of_smallest_rings()
+            if sorted([len(sr) for sr in sssr]) == sorted([len(sr_grp) for sr_grp in sssr_grp]):
+                return False
+            else:
+                return True
+
+def convert_ring_to_sub_molecule(ring):
+    """
+    This function takes a ring structure (can either be monoring or polyring) to create a new 
+    submolecule with newly deep copied atoms
+
+    Outputted submolecules may have incomplete valence and may cause errors with some Molecule.methods(), such
+    as update_atomtypes() or update(). In the future we may consider using groups for the sub-molecules.
+    """
+
+    atoms_mapping = {}
+    for atom in ring:
+        atoms_mapping[atom] = atom.copy()  # this copy is deep copy of origin atom with empty edges
+
+    mol0 = Molecule(atoms=list(atoms_mapping.values()))
+
+    for atom in ring:
+        for bonded_atom, bond in atom.edges.items():
+            if bonded_atom in ring:
+                if not mol0.has_bond(atoms_mapping[atom], atoms_mapping[bonded_atom]):
+                    mol0.add_bond(Bond(atoms_mapping[atom], atoms_mapping[bonded_atom], order=bond.order))
+
+    mol0.update_multiplicity()
+    mol0.update_connectivity_values()
+    return mol0, atoms_mapping
+
+def add_solute_data(solute_data1, solute_data2, group_additivity=False, verbose=False):
+        """
+        Add the thermodynamic data `thermo_data2` to the data `thermo_data1`,
+        and return `thermo_data1`.
+
+        If `group_additivity` is True, append comments related to group additivity estimation
+        If `verbose` is False, omit the comments from a "zero entry", whose H298, S298, and Cp are all 0.
+        If `verbose` is True, or thermo_data2 is not a zero entry, add thermo_data2.comment to thermo_data1.comment.
+        """
+        solute_data1.A += solute_data2.A
+        solute_data1.B += solute_data2.B
+        solute_data1.L += solute_data2.L
+        solute_data1.E += solute_data2.E
+        solute_data1.S += solute_data2.S
+        
+        test_zero = sum(abs(value) for value in
+                        [solute_data2.A, solute_data2.B, solute_data2.L, solute_data2.E, solute_data2.S])
+        # Used to check if all of the entries in thermo_data2 are zero
+
+        if group_additivity:
+            if verbose or test_zero != 0:
+                # If verbose==True or test_zero!=0, add thermo_data2.comment to thermo_data1.comment.
+                if solute_data1.comment:
+                    solute_data1.comment += ' + {0}'.format(solute_data2.comment)
+                else:
+                    solute_data1.comment = 'Thermo group additivity estimation: ' + solute_data1.comment
+
+        return solute_data1
+
+def remove_solute_data(solute_data1, solute_data2, group_additivity=False, verbose=False):
+    """
+    Remove the solutedynamic data `solute_data2` from the data `solute_data1`,
+    and return `solute_data1`.
+    If `verbose` is True, append ' - solute_data2.comment' to the solute_data1.comment.
+    If `verbose` is False, remove the solute_data2.comment from the solute_data1.comment.
+    """
+    solute_data1.A -= solute_data2.A
+    solute_data1.B -= solute_data2.B
+    solute_data1.L -= solute_data2.L
+    solute_data1.E -= solute_data2.E
+    solute_data1.S -= solute_data2.S
+    
+    test_zero = sum(abs(value) for value in
+                    [solute_data2.A, solute_data2.B, solute_data2.L, solute_data2.E, solute_data2.S])
+    # Used to check if all of the entries in thermo_data2 are zero
+
+    if group_additivity:
+        if verbose:
+            solute_data1.comment += ' - {0}'.format(solute_data2.comment)
+        else:
+            solute_data1.comment = re.sub(re.escape(' + ' + solute_data2.comment), '', thermo_data1.comment, 1)
+    return solute_data1
+
+def average_solute_data(solute_data_list=None):
+        """
+        Average a list of ThermoData values together.
+        Sets uncertainty values to be the approximately the 95% confidence interval, equivalent to
+        2 standard deviations calculated using the sample standard variance:
+        
+        Uncertainty = 2s
+        s = sqrt( sum(abs(x - x.mean())^2) / N - 1) where N is the number of values averaged
+        
+        Note that uncertainties are only computed when number of values is greater than 1.
+        """
+        if solute_data_list is None:
+            solute_data_list = []
+
+        num_values = len(solute_data_list)
+
+        if num_values == 0:
+            raise ValueError('No solute data values were inputted to be averaged.')
+        else:
+            logging.debug('Averaging solute data over {0} value(s).'.format(num_values))
+
+            if num_values == 1:
+                return deepcopy(solute_data_list[0])
+
+            else:
+                averaged_solute_data = deepcopy(solute_data_list[0])
+                for solute_data in solute_data_list[1:]:
+                    averaged_solute_data = add_solute_data(averaged_solute_data, solute_data)
+                S_data = [solute_data.S for solute_data in solute_data_list]
+                averaged_solute_data.S /= num_values
+                B_data = [solute_data.B for solute_data in solute_data_list]
+                averaged_solute_data.B /= num_values
+                E_data = [solute_data.E for solute_data in solute_data_list]
+                averaged_solute_data.E /= num_values
+                L_data = [solute_data.L for solute_data in solute_data_list]
+                averaged_solute_data.L /= num_values
+                A_data = [solute_data.A for solute_data in solute_data_list]
+                averaged_solute_data.A /= num_values
+                return averaged_solute_data
+
+def is_bicyclic(polyring):
+    """
+    Given a polyring (a list of `Atom`s)
+    returns True if it's a bicyclic, False otherwise
+    """
+    submol, _ = convert_ring_to_sub_molecule(polyring)
+    sssr = submol.get_smallest_set_of_smallest_rings()
+
+    return len(sssr) == 2
+
+def find_aromatic_bonds_from_sub_molecule(submol):
+    """
+    This method finds all the aromatic bonds within a input submolecule and 
+    returns a set of unique aromatic bonds
+    """
+
+    aromatic_bonds = []
+    for atom in submol.atoms:
+        bonds = submol.get_bonds(atom)
+        for atom_j in bonds:
+            if atom_j in submol.atoms:
+                bond = bonds[atom_j]
+                if bond.is_benzene():
+                    aromatic_bonds.append(bond)
+    return set(aromatic_bonds)
+
+
+def convert_ring_to_sub_molecule(ring):
+    """
+    This function takes a ring structure (can either be monoring or polyring) to create a new 
+    submolecule with newly deep copied atoms
+
+    Outputted submolecules may have incomplete valence and may cause errors with some Molecule.methods(), such
+    as update_atomtypes() or update(). In the future we may consider using groups for the sub-molecules.
+    """
+
+    atoms_mapping = {}
+    for atom in ring:
+        atoms_mapping[atom] = atom.copy()  # this copy is deep copy of origin atom with empty edges
+
+    mol0 = Molecule(atoms=list(atoms_mapping.values()))
+
+    for atom in ring:
+        for bonded_atom, bond in atom.edges.items():
+            if bonded_atom in ring:
+                if not mol0.has_bond(atoms_mapping[atom], atoms_mapping[bonded_atom]):
+                    mol0.add_bond(Bond(atoms_mapping[atom], atoms_mapping[bonded_atom], order=bond.order))
+
+    mol0.update_multiplicity()
+    mol0.update_connectivity_values()
+    return mol0, atoms_mapping
+
+
+def combine_two_rings_into_sub_molecule(ring1, ring2):
+    """
+    This function combines 2 rings (with common atoms) to create a new 
+    submolecule with newly deep copied atoms
+    """
+
+    assert len(common_atoms(ring1, ring2)) > 0, "The two input rings don't have common atoms."
+
+    atoms_mapping = {}
+    for atom in ring1 + ring2:
+        if atom not in atoms_mapping:
+            atoms_mapping[atom] = atom.copy()
+
+    mol0 = Molecule(atoms=list(atoms_mapping.values()))
+
+    for atom in ring1:
+        for bonded_atom, bond in atom.edges.items():
+            if bonded_atom in ring1:
+                if not mol0.has_bond(atoms_mapping[atom], atoms_mapping[bonded_atom]):
+                    mol0.add_bond(Bond(atoms_mapping[atom], atoms_mapping[bonded_atom], order=bond.order))
+
+    for atom in ring2:
+        for bonded_atom, bond in atom.edges.items():
+            if bonded_atom in ring2:
+                if not mol0.has_bond(atoms_mapping[atom], atoms_mapping[bonded_atom]):
+                    mol0.add_bond(Bond(atoms_mapping[atom], atoms_mapping[bonded_atom], order=bond.order))
+
+    mol0.update_multiplicity()
+    mol0.update_connectivity_values()
+
+    return mol0, atoms_mapping
+
+
+def get_copy_for_one_ring(ring):
+    """
+    Make a copy of a single ring from a molecule.
+
+    Returns a list of atoms.
+    """
+    atoms_mapping = convert_ring_to_sub_molecule(ring)[1]
+
+    ring_copy = [atoms_mapping[atom] for atom in ring]
+
+    return ring_copy
+
+
+def get_copy_from_two_rings_with_common_atoms(ring1, ring2):
+    """
+    Make a copy of a two rings from a molecule and also generates the merged ring.
+
+    Returns a copy of ring1, a copy of ring2, and the merged rings, each as a list of atoms.
+    """
+    merged_ring, atoms_mapping = combine_two_rings_into_sub_molecule(ring1, ring2)
+
+    ring1_copy = [atoms_mapping[atom] for atom in ring1]
+    ring2_copy = [atoms_mapping[atom] for atom in ring2]
+
+    return ring1_copy, ring2_copy, merged_ring
+
+def bicyclic_decomposition_for_polyring(polyring):
+    """
+    Decompose a polycyclic ring into all possible bicyclic combinations: `bicyclics_merged_from_ring_pair`
+    and return a `ring_occurances_dict` that contains all single ring tuples as keys and the number of times
+    they appear each bicyclic submolecule.  These bicyclic and single rings are used 
+    later in the heuristic polycyclic thermo algorithm.
+    """
+
+    submol, _ = convert_ring_to_sub_molecule(polyring)
+    sssr = submol.get_deterministic_sssr()
+
+    ring_pair_with_common_atoms_list = []
+    ring_occurances_dict = {}
+
+    # Initialize ringOccuranceDict
+    for ring in sssr:
+        ring_occurances_dict[tuple(ring)] = 0
+
+    ring_num = len(sssr)
+    for i in range(ring_num):
+        for j in range(i + 1, ring_num):
+            if common_atoms(sssr[i], sssr[j]):
+                # Copy the SSSR's again because these ones are going to be merged into bicyclics
+                # and manipulated (aromatic bonds have to be screened and changed to single if needed)
+                sssr_i, sssr_j, merged_ring = get_copy_from_two_rings_with_common_atoms(sssr[i], sssr[j])
+                ring_pair_with_common_atoms_list.append([sssr_i, sssr_j, merged_ring])
+                # Save the single ring SSSRs that appear in bicyclics using the original copy
+                # because they will be manipulated (differently) in _add_poly_ring_correction_thermo_data_from_heuristic
+                ring_occurances_dict[tuple(sssr[i])] += 1
+                ring_occurances_dict[tuple(sssr[j])] += 1
+
+    bicyclics_merged_from_ring_pair = []
+    # pre-process 2-ring cores
+    for ringA, ringB, merged_ring in ring_pair_with_common_atoms_list:
+        submol_a = Molecule(atoms=ringA)
+        submol_b = Molecule(atoms=ringB)
+        is_a_aromatic = is_aromatic_ring(submol_a)
+        is_b_aromatic = is_aromatic_ring(submol_b)
+        # if ringA and ringB are both aromatic or not aromatic
+        # don't need to do anything extra
+        if is_a_aromatic and is_b_aromatic:
+            pass
+        elif not is_a_aromatic and not is_b_aromatic:
+            aromatic_bonds_in_a = find_aromatic_bonds_from_sub_molecule(submol_a)
+            for aromaticBond_inA in aromatic_bonds_in_a:
+                aromaticBond_inA.set_order_num(1)
+
+            aromatic_bonds_in_b = find_aromatic_bonds_from_sub_molecule(submol_b)
+            for aromaticBond_inB in aromatic_bonds_in_b:
+                aromaticBond_inB.set_order_num(1)
+        elif is_a_aromatic:
+            aromatic_bonds_in_b = find_aromatic_bonds_from_sub_molecule(submol_b)
+            for aromaticBond_inB in aromatic_bonds_in_b:
+                # Make sure the aromatic bond in ringB is in ringA, and both ringB atoms are in ringA 
+                # If so, preserve the B bond status, otherwise change to single bond order
+                if ((aromaticBond_inB.atom1 in submol_a.atoms) and
+                        (aromaticBond_inB.atom2 in submol_a.atoms) and
+                        (submol_a.has_bond(aromaticBond_inB.atom1, aromaticBond_inB.atom2))):
+                    pass
+                else:
+                    aromaticBond_inB.set_order_num(1)
+        else:
+            aromatic_bonds_in_a = find_aromatic_bonds_from_sub_molecule(submol_a)
+            for aromaticBond_inA in aromatic_bonds_in_a:
+                if ((aromaticBond_inA.atom1 in submol_b.atoms) and
+                        (aromaticBond_inA.atom2 in submol_b.atoms) and
+                        (submol_b.has_bond(aromaticBond_inA.atom1, aromaticBond_inA.atom2))):
+                    pass
+                else:
+                    aromaticBond_inA.set_order_num(1)
+        merged_ring.saturate_unfilled_valence(update=True)
+        bicyclics_merged_from_ring_pair.append(merged_ring)
+
+    return bicyclics_merged_from_ring_pair, ring_occurances_dict
+
+
+def split_bicyclic_into_single_rings(bicyclic_submol):
+    """
+    Splits a given bicyclic submolecule into two individual single 
+    ring submolecules (a list of `Molecule`s ).
+    """
+    sssr = bicyclic_submol.get_deterministic_sssr()
+
+    return [convert_ring_to_sub_molecule(sssr[0])[0],
+            convert_ring_to_sub_molecule(sssr[1])[0]]
+
+
+def saturate_ring_bonds(ring_submol):
+    """
+    Given a ring submolelcule (`Molecule`), makes a deep copy and converts non-single bonds 
+    into single bonds, returns a new saturated submolecule (`Molecule`)
+    """
+    atoms_mapping = {}
+    for atom in ring_submol.atoms:
+        if atom not in atoms_mapping:
+            atoms_mapping[atom] = atom.copy()
+
+    mol0 = Molecule(atoms=list(atoms_mapping.values()))
+
+    already_saturated = True
+    for atom in ring_submol.atoms:
+        for bonded_atom, bond in atom.edges.items():
+            if bonded_atom in ring_submol.atoms:
+                if bond.order > 1.0 and not bond.is_benzene():
+                    already_saturated = False
+                if not mol0.has_bond(atoms_mapping[atom], atoms_mapping[bonded_atom]):
+                    bond_order = 1.0
+                    if bond.is_benzene():
+                        bond_order = 1.5
+                    mol0.add_bond(Bond(atoms_mapping[atom], atoms_mapping[bonded_atom], order=bond_order))
+
+    mol0.saturate_unfilled_valence()
+    mol0.update_atomtypes()
+    mol0.update_multiplicity()
+    mol0.update_connectivity_values()
+    return mol0, already_saturated
 
 class SolventData(object):
     """
@@ -797,11 +1162,34 @@ class SolvationDatabase(object):
 
     def estimate_solute_via_group_additivity(self, molecule):
         """
+        Return the set of thermodynamic parameters corresponding to a given
+        :class:`Molecule` object `molecule` by estimation using the group
+        additivity values. If no group additivity values are loaded, a
+        :class:`DatabaseError` is raised.
+        
+        The entropy is not corrected for the symmetry of the molecule.
+        This should be done later by the calling function.
+        """
+        # For thermo estimation we need the atoms to already be sorted because we
+        # iterate over them; if the order changes during the iteration then we
+        # will probably not visit the right atoms, and so will get the thermo wrong
+        molecule.sort_atoms()
+
+        if molecule.is_radical():
+            solute_data = self.estimate_radical_solute_via_hbi(molecule, self.compute_group_additivity_solute)
+        else:
+            solute_data = self.compute_group_additivity_solute(molecule)
+        return solute_data
+    
+    def compute_group_additivity_solute(self,molecule):
+        
+        """
         Return the set of Abraham solute parameters corresponding to a given
         :class:`Molecule` object `molecule` by estimation using the Platts' group
         additivity method. If no group additivity values are loaded, a
         :class:`DatabaseError` is raised.
         """
+        assert not molecule.is_radical(), "This method is only for saturated non-radical species."
         # For thermo estimation we need the atoms to already be sorted because we
         # iterate over them; if the order changes during the iteration then we
         # will probably not visit the right atoms, and so will get the thermo wrong
@@ -809,52 +1197,399 @@ class SolvationDatabase(object):
 
         # Create the SoluteData object with the intercepts from the Platts groups
         solute_data = SoluteData(
-            S=0.277,
-            B=0.071,
-            E=0.248,
-            L=0.13,
-            A=0.003
+            S=0.37664831,
+            B=0.048748046,
+            E=0.020036519,
+            L=-0.089044836,
+            A=0.141512274
         )
-
-        added_to_radicals = {}  # Dictionary of key = atom, value = dictionary of {H atom: bond}
-        added_to_pairs = {}  # Dictionary of key = atom, value = # lone pairs changed
-        saturated_struct = molecule.copy(deep=True)
-
-        # Convert lone pairs to radicals, then saturate with H.
-
-        # Change lone pairs to radicals based on valency
-        if (sum([atom.lone_pairs for atom in saturated_struct.atoms]) > 0 and  # molecule contains lone pairs
-                not any([atom.atomtype.label == 'C2tc' for atom in saturated_struct.atoms])):  # and is not [C-]#[O+]
-            saturated_struct, added_to_pairs = self.transform_lone_pairs(saturated_struct)
-
-        # Now saturate radicals with H
-        if sum([atom.radical_electrons for atom in saturated_struct.atoms]) > 0:  # radical species
-            added_to_radicals = saturated_struct.saturate_radicals()
-
-        # Saturated structure should now have no unpaired electrons, and only "expected" lone pairs
-        # based on the valency
-        for atom in saturated_struct.atoms:
+        cyclic = molecule.is_cyclic()
+        # Generate estimate of thermodynamics
+        for atom in molecule.atoms:
             # Iterate over heavy (non-hydrogen) atoms
             if atom.is_non_hydrogen():
-                # Get initial solute data from main group database. Every atom must
-                # be found in the main abraham database
+                # Get initial thermo estimate from main group database
                 try:
-                    self._add_group_solute_data(solute_data, self.groups['abraham'], saturated_struct, {'*': atom})
+                    self._add_group_solute_data(solute_data, self.groups['group'], molecule, {'*': atom})
                 except KeyError:
-                    logging.error("Couldn't find in main abraham database:")
-                    logging.error(saturated_struct)
-                    logging.error(saturated_struct.to_adjacency_list())
+                    logging.error("Couldn't find in main solute database:")
+                    logging.error(molecule)
+                    logging.error(molecule.to_adjacency_list())
                     raise
-                # Get solute data for non-atom centered groups (being found in this group
-                # database is optional)    
-                try:
-                    self._add_group_solute_data(solute_data, self.groups['nonacentered'], saturated_struct, {'*': atom})
+                # Correct for gauche and 1,5- interactions
+                # Pair atom with its 1st and 2nd nonHydrogen neighbors, 
+                # Then match the pair with the entries in the database longDistanceInteraction_noncyclic.py
+                # Currently we only have gauche(1,4) and 1,5 interactions in that file. 
+                # If you want to add more corrections for longer distance, please call get_nth_neighbor() method accordingly.
+                # Potentially we could include other.py in this database, but it's a little confusing how to label atoms for the entries in other.py
                 except KeyError:
                     pass
 
-        solute_data = self.remove_h_bonding(saturated_struct, added_to_radicals, added_to_pairs, solute_data)
+        # Do long distance interaction correction for cyclic molecule. 
+        # First get smallest set of smallest rings. 
+        # Then for every single ring, generate the atom pairs by itertools.permutation.
+        # Finally match the atom pair with the database.
+        # WIPWIPWIPWIPWIPWIPWIP         #########################################         WIPWIPWIPWIPWIPWIPWIP
+        # WIP: For now, in the database, if an entry describes the interaction between same groups, 
+        # it will be halved because it will be counted twice here. 
+        # Alternatively we could keep all the entries as their full values by using combinations instead of permutations here.
+        # In that case, we need to add more lines to match from reverse side when we didn't hit the most specific level from the forward side.
+        # PS: by saying 'forward side', I mean {'*1':atomPair[0], '*2':atomPair[1]}. So the following is the reverse side '{'*1':atomPair[1], '*2':atomPair[0]}'
+        # In my opinion, it's cleaner to do it in the current way.
+        # WIPWIPWIPWIPWIPWIPWIP         #########################################         WIPWIPWIPWIPWIPWIPWIP
+
+        # Do ring corrections separately because we only want to match
+        # each ring one time
+
+        if cyclic:
+            monorings, polyrings = molecule.get_disparate_cycles()
+            for ring in monorings:
+                # Make a temporary structure containing only the atoms in the ring
+                # NB. if any of the ring corrections depend on ligands not in the ring, they will not be found!
+                try:
+                    self._add_ring_correction_solute_data_from_tree(solute_data, self.groups['ring'], molecule, ring)
+                except KeyError:
+                    logging.error("Couldn't find a match in the monocyclic ring database even though "
+                                  "monocyclic rings were found.")
+                    logging.error(molecule)
+                    logging.error(molecule.to_adjacency_list())
+                    raise
+            for polyring in polyrings:
+                # Make a temporary structure containing only the atoms in the ring
+                # NB. if any of the ring corrections depend on ligands not in the ring, they will not be found!
+                try:
+                    self._add_polycyclic_correction_solute_data(solute_data, molecule, polyring)
+                except KeyError:
+                    logging.error("Couldn't find a match in the polycyclic ring database even though "
+                                  "polycyclic rings were found.")
+                    logging.error(molecule)
+                    logging.error(molecule.to_adjacency_list())
+                    raise
 
         return solute_data
+
+    def _add_ring_correction_solute_data_from_tree(self, solute_data, ring_database, molecule, ring):
+        """
+        Determine the ring correction group additivity thermodynamic data for the given
+         `ring` in the `molecule`, and add it to the existing thermo data
+        `thermo_data`.
+        Also returns the matched ring group from the database from which the data originated.
+        """
+        matched_ring_entries = []
+        # label each atom in the ring individually to try to match the group
+        # for each ring, save only the ring that is matches the most specific leaf in the tree.
+        for atom in ring:
+            atoms = {'*': atom}
+            entry = ring_database.descend_tree(molecule, atoms)
+            matched_ring_entries.append(entry)
+
+        if matched_ring_entries is []:
+            raise KeyError('Node not found in database.')
+        # Decide which group to keep
+        is_partial_match = True
+        complete_matched_groups = [entry for entry in matched_ring_entries
+                                   if not is_ring_partial_matched(ring, entry.item)]
+
+        if complete_matched_groups:
+            is_partial_match = False
+            matched_ring_entries = complete_matched_groups
+
+        depth_list = [len(ring_database.ancestors(entry)) for entry in matched_ring_entries]
+        most_specific_match_indices = [i for i, x in enumerate(depth_list) if x == max(depth_list)]
+
+        most_specific_matched_entries = [matched_ring_entries[idx] for idx in most_specific_match_indices]
+        if len(set(most_specific_matched_entries)) != 1:
+            logging.debug('More than one type of node was found to be most specific for this ring.')
+            logging.debug('This is either due to a database error in the ring or polycyclic groups, '
+                          'or a partial match between the group and the full ring.')
+            logging.debug(most_specific_matched_entries)
+
+        # Condense the number of most specific groups down to one
+        most_specific_matched_entry = matched_ring_entries[most_specific_match_indices[0]]
+
+        node = most_specific_matched_entry
+
+        if node is None:
+            raise DatabaseError('Unable to determine thermo parameters for {0}: no data for {1} or '
+                                'any of its ancestors.'.format(molecule, mostSpecificGroup))
+
+        while node is not None and node.data is None:
+            # do average of its children
+            success, averaged_solute_data = self._average_children_solute(node)
+            if success:
+                node.data = averaged_solute_data
+            else:
+                node = node.parent
+
+        data = node.data
+        comment = node.label
+        while isinstance(data, str) and data is not None:
+            for entry in ring_database.entries.values():
+                if entry.label == data:
+                    data = entry.data
+                    comment = entry.label
+                    node = entry
+                    break
+        data.comment = '{0}({1})'.format(ring_database.label, comment)
+
+        if solute_data is None:
+            return data, node, is_partial_match
+        else:
+            return add_solute_data(solute_data, data, group_additivity=True, verbose=True), node, is_partial_match
+            # By setting verbose=True, we turn on the comments of ring correction to pass the unittest.
+            # Typically this comment is very short and also very helpful to check if the ring correction is calculated correctly.
+
+    def _average_children_solute(self, node):
+        """
+        Use children's thermo data to guess thermo data of parent `node` 
+        that doesn't have thermo data built-in in tree yet. 
+        For `node` has children that have thermo data, return success flag 
+        `True` and the average thermo data.
+        For `node` whose children that all have no thermo data, return flag
+        `False` and None for the thermo data.
+        """
+        if not node.children:
+            if node.data is None:
+                return False, None
+            else:
+                return True, node.data
+        else:
+            children_solute_data_list = []
+            for child in node.children:
+                if child.data is None:
+                    success, child_solute_data_average = self._average_children_solute(child)
+                    if success:
+                        children_solute_data_list.append(child_solute_data_average)
+                else:
+                    children_solute_data_list.append(child.data)
+            if children_solute_data_list:
+                return True, average_solute_data(children_solute_data_list)
+            else:
+                return False, None
+
+    def _add_polycyclic_correction_solute_data(self, solute_data, molecule, polyring):
+        """
+        INPUT: `polyring` as a list of `Atom` forming a polycyclic ring
+        OUTPUT: if the input `polyring` can be fully matched in polycyclic database, the correction
+        will be directly added to `thermo_data`; otherwise, a heuristic approach will
+        be applied.
+        """
+        # look up polycylic tree directly
+        matched_group_solutedata, matched_group, is_partial_match = self._add_ring_correction_solute_data_from_tree(
+            None, self.groups['polycyclic'], molecule, polyring)
+
+        # if partial match (non-H atoms number same between 
+        # polycylic ring in molecule and match group)
+        # otherwise, apply heuristic algorithm
+        if not is_partial_match:
+            if is_bicyclic(polyring) and matched_group.label in self.groups['polycyclic'].generic_nodes:
+                # apply secondary decompostion formula
+                # to get a estimated_group_thermodata
+                estimated_bicyclic_solutedata = self.get_bicyclic_correction_solute_data_from_heuristic(polyring)
+                if not estimated_bicyclic_solutedata:
+                    estimated_bicyclic_solutedata = matched_group_solutedata
+                solute_data = add_solute_data(solute_data, estimated_bicyclic_solutedata, group_additivity=True,
+                                              verbose=True)
+            else:
+                # keep matched_group_solutedata as is
+                solute_data = add_solute_data(solute_data, matched_group_solutedata, group_additivity=True, verbose=True)
+                # By setting verbose=True, we turn on the comments of polycyclic correction to pass the unittest.
+                # Typically this comment is very short and also very helpful to check if the ring correction is calculated correctly.
+        else:
+            self._add_poly_ring_correction_solute_data_from_heuristic(solute_data, polyring)
+
+    def _add_poly_ring_correction_solute_data_from_heuristic(self, solute_data, polyring):
+        """
+        INPUT: `polyring` as a list of `Atom` forming a polycyclic ring, which can 
+        only be partially matched.
+        OUTPUT: `polyring` will be decomposed into a combination of 2-ring polycyclics
+        and each one will be looked up from polycyclic database. The heuristic formula 
+        is "polyring solute correction = sum of correction of all 2-ring sub-polycyclics - 
+        overlapped single-ring correction"; the calculated polyring solute correction 
+        will be finally added to input `solute_data`.
+        """
+
+        # polyring decomposition
+        bicyclics_merged_from_ring_pair, ring_occurrences_dict = bicyclic_decomposition_for_polyring(polyring)
+
+        # loop over 2-ring cores
+        for bicyclic in bicyclics_merged_from_ring_pair:
+            matched_group_solutedata, matched_group, _ = self._add_ring_correction_solute_data_from_tree(
+                None, self.groups['polycyclic'], bicyclic, bicyclic.atoms)
+
+            if matched_group.label in self.groups['polycyclic'].generic_nodes:
+                # apply secondary decompostion formula
+                # to get a estimated_group_solutedata
+                estimated_bicyclic_solutedata = self.get_bicyclic_correction_solute_data_from_heuristic(bicyclic.atoms)
+                if not estimated_bicyclic_solutedata:
+                    estimated_bicyclic_solutedata = matched_group_solutedata
+                solute_data = add_solute_data(solute_data, estimated_bicyclic_solutedata, group_additivity=True,
+                                             verbose=True)
+            else:
+                # keep matched_group_solutedata as is
+                solute_data = add_solute_data(solute_data, matched_group_solutedata, group_additivity=True, verbose=True)
+
+        # loop over 1-ring 
+        for singleRingTuple, occurrence in ring_occurrences_dict.items():
+            single_ring = list(singleRingTuple)
+
+            if occurrence >= 2:
+                submol, _ = convert_ring_to_sub_molecule(single_ring)
+
+                if not is_aromatic_ring(submol):
+                    aromatic_bonds = find_aromatic_bonds_from_sub_molecule(submol)
+                    for aromaticBond in aromatic_bonds:
+                        aromaticBond.set_order_num(1)
+
+                    submol.saturate_unfilled_valence()
+                    single_ring_solutedata = self._add_ring_correction_solute_data_from_tree(
+                        None, self.groups['ring'], submol, submol.atoms)[0]
+
+                else:
+                    submol.update()
+                    single_ring_solutedata = self._add_ring_correction_solute_data_from_tree(
+                        None, self.groups['ring'], submol, submol.atoms)[0]
+            for _ in range(occurrence - 1):
+                solute_data = remove_solute_data(solute_data, single_ring_solutedata, True, True)
+                # By setting verbose=True, we turn on the comments of polycyclic correction to pass the unittest.
+                # Typically this comment is very short and also very helpful to check if the ring correction is calculated correctly.
+    
+    def get_bicyclic_correction_solute_data_from_heuristic(self, bicyclic):
+
+        # saturate if the bicyclic has unsaturated bonds
+        # otherwise return None
+        bicyclic_submol = convert_ring_to_sub_molecule(bicyclic)[0]
+        saturated_bicyclic_submol, already_saturated = saturate_ring_bonds(bicyclic_submol)
+
+        if already_saturated:
+            return None
+        # split bicyclic into two single ring submols
+        single_ring_submols = split_bicyclic_into_single_rings(bicyclic_submol)
+
+        # split saturated bicyclic into two single ring submols
+        saturated_single_ring_submols = split_bicyclic_into_single_rings(saturated_bicyclic_submol)
+
+        # apply formula: 
+        # bicyclic correction ~= saturated bicyclic correction - 
+        # saturated single ring corrections + single ring corrections
+
+        estimated_bicyclic_solute_data = SoluteData(
+        S = 0.0,
+        B = 0.0,
+        E = 0.0,
+        L = 0.0,
+        A = 0.0,
+        ),
+
+        saturated_bicyclic_solute_data = self._add_ring_correction_solute_data_from_tree(
+            None, self.groups['polycyclic'], saturated_bicyclic_submol, saturated_bicyclic_submol.atoms)[0]
+
+        estimated_bicyclic_solute_data = add_solute_data(estimated_bicyclic_solute_data,
+                                                         saturated_bicyclic_solute_data,
+                                                         group_additivity=True)
+
+        estimated_bicyclic_solute_data.comment = "Estimated bicyclic component: " + \
+                                                 saturated_bicyclic_solute_data.comment
+
+        for submol in saturated_single_ring_submols:
+
+            if not is_aromatic_ring(submol):
+                aromatic_bonds = find_aromatic_bonds_from_sub_molecule(submol)
+                for aromatic_bond in aromatic_bonds:
+                    aromatic_bond.set_order_num(1)
+
+                submol.saturate_unfilled_valence()
+                single_ring_solute_data = self._add_ring_correction_solute_data_from_tree(
+                    None, self.groups['ring'], submol, submol.atoms)[0]
+
+            else:
+                submol.update()
+                single_ring_solute_data = self._add_ring_correction_solute_data_from_tree(
+                    None, self.groups['ring'], submol, submol.atoms)[0]
+            estimated_bicyclic_solute_data = remove_solute_data(estimated_bicyclic_solute_data,
+                                                                single_ring_solute_data,
+                                                                group_additivity=True, verbose=True)
+
+        for submol in single_ring_submols:
+
+            if not is_aromatic_ring(submol):
+                aromatic_bonds = find_aromatic_bonds_from_sub_molecule(submol)
+                for aromatic_bond in aromatic_bonds:
+                    aromatic_bond.set_order_num(1)
+
+                submol.saturate_unfilled_valence()
+                single_ring_solute_data = self._add_ring_correction_solute_data_from_tree(
+                    None, self.groups['ring'], submol, submol.atoms)[0]
+
+            else:
+                submol.update()
+                single_ring_solute_data = self._add_ring_correction_solute_data_from_tree(
+                    None, self.groups['ring'], submol, submol.atoms)[0]
+
+            estimated_bicyclic_solute_data = add_solute_data(estimated_bicyclic_solute_data,
+                                                             single_ring_solute_data, group_additivity=True, verbose=True)
+
+        return estimated_bicyclic_solute_data
+    # def estimate_solute_via_group_additivity(self, molecule):
+    #     """
+    #     Return the set of Abraham solute parameters corresponding to a given
+    #     :class:`Molecule` object `molecule` by estimation using the Platts' group
+    #     additivity method. If no group additivity values are loaded, a
+    #     :class:`DatabaseError` is raised.
+    #     """
+    #     # For thermo estimation we need the atoms to already be sorted because we
+    #     # iterate over them; if the order changes during the iteration then we
+    #     # will probably not visit the right atoms, and so will get the thermo wrong
+    #     molecule.sort_atoms()
+
+    #     # Create the SoluteData object with the intercepts from the Platts groups
+    #     solute_data = SoluteData(
+    #         S=0.277,
+    #         B=0.071,
+    #         E=0.248,
+    #         L=0.13,
+    #         A=0.003
+    #     )
+
+    #     added_to_radicals = {}  # Dictionary of key = atom, value = dictionary of {H atom: bond}
+    #     added_to_pairs = {}  # Dictionary of key = atom, value = # lone pairs changed
+    #     saturated_struct = molecule.copy(deep=True)
+
+    #     # Convert lone pairs to radicals, then saturate with H.
+
+    #     # Change lone pairs to radicals based on valency
+    #     if (sum([atom.lone_pairs for atom in saturated_struct.atoms]) > 0 and  # molecule contains lone pairs
+    #             not any([atom.atomtype.label == 'C2tc' for atom in saturated_struct.atoms])):  # and is not [C-]#[O+]
+    #         saturated_struct, added_to_pairs = self.transform_lone_pairs(saturated_struct)
+
+    #     # Now saturate radicals with H
+    #     if sum([atom.radical_electrons for atom in saturated_struct.atoms]) > 0:  # radical species
+    #         added_to_radicals = saturated_struct.saturate_radicals()
+
+    #     # Saturated structure should now have no unpaired electrons, and only "expected" lone pairs
+    #     # based on the valency
+    #     for atom in saturated_struct.atoms:
+    #         # Iterate over heavy (non-hydrogen) atoms
+    #         if atom.is_non_hydrogen():
+    #             # Get initial solute data from main group database. Every atom must
+    #             # be found in the main abraham database
+    #             try:
+    #                 self._add_group_solute_data(solute_data, self.groups['abraham'], saturated_struct, {'*': atom})
+    #             except KeyError:
+    #                 logging.error("Couldn't find in main abraham database:")
+    #                 logging.error(saturated_struct)
+    #                 logging.error(saturated_struct.to_adjacency_list())
+    #                 raise
+    #             # Get solute data for non-atom centered groups (being found in this group
+    #             # database is optional)    
+    #             try:
+    #                 self._add_group_solute_data(solute_data, self.groups['nonacentered'], saturated_struct, {'*': atom})
+    #             except KeyError:
+    #                 pass
+
+    #     solute_data = self.remove_h_bonding(saturated_struct, added_to_radicals, added_to_pairs, solute_data)
+
+    #     return solute_data
 
     def _add_group_solute_data(self, solute_data, database, molecule, atom):
         """
