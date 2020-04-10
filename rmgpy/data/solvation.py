@@ -1306,11 +1306,11 @@ class SolvationDatabase(object):
 
         # Create the SoluteData object with the intercepts from the Platts groups
         solute_data = SoluteData(
-            S=0.318098769,
-            B=0.044809803,
-            E=0.097736145,
-            L=-0.193282289,
-            A=0.095540252
+            S=0.329824424,
+            B=0.043244383,
+            E=0.094417187,
+            L=-0.197630312,
+            A=0.090130117
         )
         cyclic = molecule.is_cyclic()
         # Generate estimate of thermodynamics
