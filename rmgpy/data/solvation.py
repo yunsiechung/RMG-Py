@@ -30,6 +30,7 @@
 """
 
 """
+import itertools
 import logging
 import math
 import os.path
@@ -131,28 +132,30 @@ def process_old_library_entry(data):
     """
     raise NotImplementedError()
 
+
 def is_ring_partial_matched(ring, matched_group):
-        """
-        An example of ring partial match is tricyclic ring is matched by a bicyclic group
-        usually because of not enough data in polycyclic tree. The method takes a matched group 
-        returned from descend_tree and the ring (a list of non-hydrogen atoms in the ring)
-        """
-        # if matched group has less atoms than the target ring
-        # it's surely a partial match
-        if len(ring) > len(matched_group.atoms):
-            return True
+    """
+    An example of ring partial match is tricyclic ring is matched by a bicyclic group
+    usually because of not enough data in polycyclic tree. The method takes a matched group
+    returned from descend_tree and the ring (a list of non-hydrogen atoms in the ring)
+    """
+    # if matched group has less atoms than the target ring
+    # it's surely a partial match
+    if len(ring) > len(matched_group.atoms):
+        return True
+    else:
+        submol_ring, _ = convert_ring_to_sub_molecule(ring)
+        sssr = submol_ring.get_smallest_set_of_smallest_rings()
+        sssr_grp = matched_group.get_smallest_set_of_smallest_rings()
+        if sorted([len(sr) for sr in sssr]) == sorted([len(sr_grp) for sr_grp in sssr_grp]):
+            return False
         else:
-            submol_ring, _ = convert_ring_to_sub_molecule(ring)
-            sssr = submol_ring.get_smallest_set_of_smallest_rings()
-            sssr_grp = matched_group.get_smallest_set_of_smallest_rings()
-            if sorted([len(sr) for sr in sssr]) == sorted([len(sr_grp) for sr_grp in sssr_grp]):
-                return False
-            else:
-                return True
+            return True
+
 
 def convert_ring_to_sub_molecule(ring):
     """
-    This function takes a ring structure (can either be monoring or polyring) to create a new 
+    This function takes a ring structure (can either be monoring or polyring) to create a new
     submolecule with newly deep copied atoms
 
     Outputted submolecules may have incomplete valence and may cause errors with some Molecule.methods(), such
@@ -175,34 +178,52 @@ def convert_ring_to_sub_molecule(ring):
     mol0.update_connectivity_values()
     return mol0, atoms_mapping
 
+
 def add_solute_data(solute_data1, solute_data2, group_additivity=False, verbose=False):
-        """
-        Add the thermodynamic data `thermo_data2` to the data `thermo_data1`,
-        and return `thermo_data1`.
+    """
+    Add the thermodynamic data `thermo_data2` to the data `thermo_data1`,
+    and return `thermo_data1`.
 
-        If `group_additivity` is True, append comments related to group additivity estimation
-        If `verbose` is False, omit the comments from a "zero entry", whose H298, S298, and Cp are all 0.
-        If `verbose` is True, or thermo_data2 is not a zero entry, add thermo_data2.comment to thermo_data1.comment.
-        """
-        solute_data1.A += solute_data2.A
-        solute_data1.B += solute_data2.B
-        solute_data1.L += solute_data2.L
-        solute_data1.E += solute_data2.E
-        solute_data1.S += solute_data2.S
-        
-        test_zero = sum(abs(value) for value in
-                        [solute_data2.A, solute_data2.B, solute_data2.L, solute_data2.E, solute_data2.S])
-        # Used to check if all of the entries in thermo_data2 are zero
+    If `group_additivity` is True, append comments related to group additivity estimation
+    If `verbose` is False, omit the comments from a "zero entry", whose H298, S298, and Cp are all 0.
+    If `verbose` is True, or thermo_data2 is not a zero entry, add thermo_data2.comment to thermo_data1.comment.
+    """
+    solute_data1.A += solute_data2.A
+    solute_data1.B += solute_data2.B
+    solute_data1.L += solute_data2.L
+    solute_data1.E += solute_data2.E
+    solute_data1.S += solute_data2.S
 
-        if group_additivity:
-            if verbose or test_zero != 0:
-                # If verbose==True or test_zero!=0, add thermo_data2.comment to thermo_data1.comment.
-                if solute_data1.comment:
-                    solute_data1.comment += ' + {0}'.format(solute_data2.comment)
-                else:
-                    solute_data1.comment = 'Thermo group additivity estimation: ' + solute_data1.comment
+    test_zero = sum(abs(value) for value in
+                    [solute_data2.A, solute_data2.B, solute_data2.L, solute_data2.E, solute_data2.S])
+    # Used to check if all of the entries in thermo_data2 are zero
 
-        return solute_data1
+    if group_additivity:
+        if verbose or test_zero != 0:
+            # If verbose==True or test_zero!=0, add thermo_data2.comment to thermo_data1.comment.
+            if solute_data1.comment:
+                solute_data1.comment += ' + {0}'.format(solute_data2.comment)
+            else:
+                solute_data1.comment = 'Thermo group additivity estimation: ' + solute_data1.comment
+
+    return solute_data1
+
+
+def is_aromatic_ring(submol):
+    """
+    This method takes a monoring submol (Molecule initialized with a list of atoms containing just
+    the ring), and check if it is a aromatic ring.
+    """
+    ring_size = len(submol.atoms)
+    if ring_size not in [5, 6]:
+        return False
+    for ring_atom in submol.atoms:
+        for bonded_atom, bond in ring_atom.edges.items():
+            if bonded_atom in submol.atoms:
+                if not bond.is_benzene():
+                    return False
+    return True
+
 
 def remove_solute_data(solute_data1, solute_data2, group_additivity=False, verbose=False):
     """
@@ -216,7 +237,7 @@ def remove_solute_data(solute_data1, solute_data2, group_additivity=False, verbo
     solute_data1.L -= solute_data2.L
     solute_data1.E -= solute_data2.E
     solute_data1.S -= solute_data2.S
-    
+
     test_zero = sum(abs(value) for value in
                     [solute_data2.A, solute_data2.B, solute_data2.L, solute_data2.E, solute_data2.S])
     # Used to check if all of the entries in thermo_data2 are zero
@@ -228,45 +249,57 @@ def remove_solute_data(solute_data1, solute_data2, group_additivity=False, verbo
             solute_data1.comment = re.sub(re.escape(' + ' + solute_data2.comment), '', thermo_data1.comment, 1)
     return solute_data1
 
+
 def average_solute_data(solute_data_list=None):
-        """
-        Average a list of ThermoData values together.
-        Sets uncertainty values to be the approximately the 95% confidence interval, equivalent to
-        2 standard deviations calculated using the sample standard variance:
-        
-        Uncertainty = 2s
-        s = sqrt( sum(abs(x - x.mean())^2) / N - 1) where N is the number of values averaged
-        
-        Note that uncertainties are only computed when number of values is greater than 1.
-        """
-        if solute_data_list is None:
-            solute_data_list = []
+    """
+    Average a list of ThermoData values together.
+    Sets uncertainty values to be the approximately the 95% confidence interval, equivalent to
+    2 standard deviations calculated using the sample standard variance:
 
-        num_values = len(solute_data_list)
+    Uncertainty = 2s
+    s = sqrt( sum(abs(x - x.mean())^2) / N - 1) where N is the number of values averaged
 
-        if num_values == 0:
-            raise ValueError('No solute data values were inputted to be averaged.')
+    Note that uncertainties are only computed when number of values is greater than 1.
+    """
+    if solute_data_list is None:
+        solute_data_list = []
+
+    num_values = len(solute_data_list)
+
+    if num_values == 0:
+        raise ValueError('No solute data values were inputted to be averaged.')
+    else:
+        logging.debug('Averaging solute data over {0} value(s).'.format(num_values))
+
+        if num_values == 1:
+            return deepcopy(solute_data_list[0])
+
         else:
-            logging.debug('Averaging solute data over {0} value(s).'.format(num_values))
+            averaged_solute_data = deepcopy(solute_data_list[0])
+            for solute_data in solute_data_list[1:]:
+                averaged_solute_data = add_solute_data(averaged_solute_data, solute_data)
+            S_data = [solute_data.S for solute_data in solute_data_list]
+            averaged_solute_data.S /= num_values
+            B_data = [solute_data.B for solute_data in solute_data_list]
+            averaged_solute_data.B /= num_values
+            E_data = [solute_data.E for solute_data in solute_data_list]
+            averaged_solute_data.E /= num_values
+            L_data = [solute_data.L for solute_data in solute_data_list]
+            averaged_solute_data.L /= num_values
+            A_data = [solute_data.A for solute_data in solute_data_list]
+            averaged_solute_data.A /= num_values
+            return averaged_solute_data
 
-            if num_values == 1:
-                return deepcopy(solute_data_list[0])
 
-            else:
-                averaged_solute_data = deepcopy(solute_data_list[0])
-                for solute_data in solute_data_list[1:]:
-                    averaged_solute_data = add_solute_data(averaged_solute_data, solute_data)
-                S_data = [solute_data.S for solute_data in solute_data_list]
-                averaged_solute_data.S /= num_values
-                B_data = [solute_data.B for solute_data in solute_data_list]
-                averaged_solute_data.B /= num_values
-                E_data = [solute_data.E for solute_data in solute_data_list]
-                averaged_solute_data.E /= num_values
-                L_data = [solute_data.L for solute_data in solute_data_list]
-                averaged_solute_data.L /= num_values
-                A_data = [solute_data.A for solute_data in solute_data_list]
-                averaged_solute_data.A /= num_values
-                return averaged_solute_data
+def common_atoms(cycle1, cycle2):
+    """
+    INPUT: two cycles with type: list of atoms
+    OUTPUT: a set of common atoms
+    """
+    set1 = set(cycle1)
+    set2 = set(cycle2)
+    return set1.intersection(set2)
+
 
 def is_bicyclic(polyring):
     """
@@ -278,9 +311,10 @@ def is_bicyclic(polyring):
 
     return len(sssr) == 2
 
+
 def find_aromatic_bonds_from_sub_molecule(submol):
     """
-    This method finds all the aromatic bonds within a input submolecule and 
+    This method finds all the aromatic bonds within a input submolecule and
     returns a set of unique aromatic bonds
     """
 
@@ -297,7 +331,7 @@ def find_aromatic_bonds_from_sub_molecule(submol):
 
 def convert_ring_to_sub_molecule(ring):
     """
-    This function takes a ring structure (can either be monoring or polyring) to create a new 
+    This function takes a ring structure (can either be monoring or polyring) to create a new
     submolecule with newly deep copied atoms
 
     Outputted submolecules may have incomplete valence and may cause errors with some Molecule.methods(), such
@@ -323,7 +357,7 @@ def convert_ring_to_sub_molecule(ring):
 
 def combine_two_rings_into_sub_molecule(ring1, ring2):
     """
-    This function combines 2 rings (with common atoms) to create a new 
+    This function combines 2 rings (with common atoms) to create a new
     submolecule with newly deep copied atoms
     """
 
@@ -380,11 +414,12 @@ def get_copy_from_two_rings_with_common_atoms(ring1, ring2):
 
     return ring1_copy, ring2_copy, merged_ring
 
+
 def bicyclic_decomposition_for_polyring(polyring):
     """
     Decompose a polycyclic ring into all possible bicyclic combinations: `bicyclics_merged_from_ring_pair`
     and return a `ring_occurances_dict` that contains all single ring tuples as keys and the number of times
-    they appear each bicyclic submolecule.  These bicyclic and single rings are used 
+    they appear each bicyclic submolecule.  These bicyclic and single rings are used
     later in the heuristic polycyclic thermo algorithm.
     """
 
@@ -433,7 +468,7 @@ def bicyclic_decomposition_for_polyring(polyring):
         elif is_a_aromatic:
             aromatic_bonds_in_b = find_aromatic_bonds_from_sub_molecule(submol_b)
             for aromaticBond_inB in aromatic_bonds_in_b:
-                # Make sure the aromatic bond in ringB is in ringA, and both ringB atoms are in ringA 
+                # Make sure the aromatic bond in ringB is in ringA, and both ringB atoms are in ringA
                 # If so, preserve the B bond status, otherwise change to single bond order
                 if ((aromaticBond_inB.atom1 in submol_a.atoms) and
                         (aromaticBond_inB.atom2 in submol_a.atoms) and
@@ -458,7 +493,7 @@ def bicyclic_decomposition_for_polyring(polyring):
 
 def split_bicyclic_into_single_rings(bicyclic_submol):
     """
-    Splits a given bicyclic submolecule into two individual single 
+    Splits a given bicyclic submolecule into two individual single
     ring submolecules (a list of `Molecule`s ).
     """
     sssr = bicyclic_submol.get_deterministic_sssr()
@@ -469,7 +504,7 @@ def split_bicyclic_into_single_rings(bicyclic_submol):
 
 def saturate_ring_bonds(ring_submol):
     """
-    Given a ring submolelcule (`Molecule`), makes a deep copy and converts non-single bonds 
+    Given a ring submolelcule (`Molecule`), makes a deep copy and converts non-single bonds
     into single bonds, returns a new saturated submolecule (`Molecule`)
     """
     atoms_mapping = {}
@@ -496,6 +531,7 @@ def saturate_ring_bonds(ring_submol):
     mol0.update_multiplicity()
     mol0.update_connectivity_values()
     return mol0, already_saturated
+
 
 class SolventData(object):
     """
@@ -618,7 +654,7 @@ class SoluteData(object):
 
     def get_stokes_diffusivity(self, T, solvent_viscosity):
         """
-        Get diffusivity of solute using the Stokes-Einstein sphere relation. 
+        Get diffusivity of solute using the Stokes-Einstein sphere relation.
         Radius is found from the McGowan volume.
         solvent_viscosity should be given in  kg/s/m which equals Pa.s
         (water is about 9e-4 Pa.s at 25C, propanol is 2e-3 Pa.s)
@@ -637,7 +673,7 @@ class SoluteData(object):
         doi: 10.1007/BF02311772
         Also see Table 1 in Zhao et al., J. Chem. Inf. Comput. Sci. Vol. 43, p.1848. 2003
         doi: 10.1021/ci0341114
-        
+
         "V is scaled to have similar values to the other
         descriptors by division by 100 and has units of (cm3mol−1/100)."
         the contibutions in this function are in cm3/mol, and the division by 100 is done at the very end.
@@ -904,7 +940,7 @@ class SolvationDatabase(object):
         """
         Load the solvation database from the given `path` on disk, where `path`
         points to the top-level folder of the solvation database.
-        
+
         Load the solvent and solute libraries, then the solute groups.
         """
 
@@ -931,25 +967,59 @@ class SolvationDatabase(object):
         """
         Load the solute database from the given `path` on disk, where `path`
         points to the top-level folder of the solute database.
-        
-        Three sets of groups for additivity, atom-centered ('abraham'), non atom-centered 
+
+        Three sets of groups for additivity, atom-centered ('abraham'), non atom-centered
         ('nonacentered'), and radical corrections ('radical')
         """
         logging.info('Loading Platts additivity group database from {0}...'.format(path))
+        categories = [
+            'abraham',
+            'nonacentered',
+            'radical',
+            'group',
+            'ring',
+            'polycyclic',
+            'longDistanceInteraction_cyclic',
+            'longDistanceInteraction_noncyclic',
+        ]
         self.groups = {
-            'abraham': SoluteGroups(label='abraham').load(os.path.join(path, 'abraham.py'),
-                                                          self.local_context, self.global_context),
-            'nonacentered': SoluteGroups(label='nonacentered').load(os.path.join(path, 'nonacentered.py'),
-                                                                    self.local_context, self.global_context),
-            'radical': SoluteGroups(label='radical').load(os.path.join(path, 'radical.py'),
-                                                          self.local_context, self.global_context),
-            'group': SoluteGroups(label='group').load(os.path.join(path, 'group.py'),
-                                                          self.local_context, self.global_context),
-            'ring': SoluteGroups(label='ring').load(os.path.join(path, 'ring.py'),
-                                                          self.local_context, self.global_context),
-            'polycyclic': SoluteGroups(label='polycyclic').load(os.path.join(path, 'polycyclic.py'),
-                                                          self.local_context, self.global_context),
+            category: SoluteGroups(label=category).load(os.path.join(path, category + '.py'),
+                                                        self.local_context, self.global_context)
+            for category in categories
         }
+
+        self.record_ring_generic_nodes()
+        self.record_polycylic_generic_nodes()
+
+    def record_ring_generic_nodes(self):
+        """
+        Identify generic nodes in tree for ring groups.
+        Saves them as a list in the `generic_nodes` attribute
+        in the ring :class:`ThermoGroups` object, which
+        must be pre-loaded.
+
+        Necessary for polycyclic heuristic.
+        """
+        self.groups['ring'].generic_nodes = ['Ring']
+        for label, entry in self.groups['ring'].entries.items():
+            if isinstance(entry.data, SoluteData):
+                continue
+            self.groups['ring'].generic_nodes.append(label)
+
+    def record_polycylic_generic_nodes(self):
+        """
+        Identify generic nodes in tree for polycyclic groups.
+        Saves them as a list in the `generic_nodes` attribute
+        in the polycyclic :class:`ThermoGroups` object, which
+        must be pre-loaded.
+
+        Necessary for polycyclic heuristic.
+        """
+        self.groups['polycyclic'].generic_nodes = ['PolycyclicRing']
+        for label, entry in self.groups['polycyclic'].entries.items():
+            if isinstance(entry.data, SoluteData):
+                continue
+            self.groups['polycyclic'].generic_nodes.append(label)
 
     def save(self, path):
         """
@@ -1073,8 +1143,8 @@ class SolvationDatabase(object):
         Return all possible sets of Abraham solute descriptors for a given
         :class:`Species` object `species`. The hits from the library come
         first, then the group additivity  estimate. This method is useful
-        for a generic search job. Right now, there should either be 1 or 
-        2 sets of descriptors, depending on whether or not we have a 
+        for a generic search job. Right now, there should either be 1 or
+        2 sets of descriptors, depending on whether or not we have a
         library entry.
         """
         solute_data_list = []
@@ -1111,7 +1181,7 @@ class SolvationDatabase(object):
         :class:`Species` object `species` by estimation using the Platts group
         additivity method. If no group additivity values are loaded, a
         :class:`DatabaseError` is raised.
-        
+
         It estimates the solute data for the first item in the species's
         molecule list because it is the most stable resonance structure found
         by gas-phase thermo estimate.
@@ -1205,7 +1275,7 @@ class SolvationDatabase(object):
         :class:`Molecule` object `molecule` by estimation using the group
         additivity values. If no group additivity values are loaded, a
         :class:`DatabaseError` is raised.
-        
+
         The entropy is not corrected for the symmetry of the molecule.
         This should be done later by the calling function.
         """
@@ -1219,9 +1289,9 @@ class SolvationDatabase(object):
         else:
             solute_data = self.compute_group_additivity_solute(molecule)
         return solute_data
-    
-    def compute_group_additivity_solute(self,molecule):
-        
+
+    def compute_group_additivity_solute(self, molecule):
+
         """
         Return the set of Abraham solute parameters corresponding to a given
         :class:`Molecule` object `molecule` by estimation using the Platts' group
@@ -1236,11 +1306,11 @@ class SolvationDatabase(object):
 
         # Create the SoluteData object with the intercepts from the Platts groups
         solute_data = SoluteData(
-            S=0.37664831,
-            B=0.048748046,
-            E=0.020036519,
-            L=-0.089044836,
-            A=0.141512274
+            S=0.318098769,
+            B=0.044809803,
+            E=0.097736145,
+            L=-0.193282289,
+            A=0.095540252
         )
         cyclic = molecule.is_cyclic()
         # Generate estimate of thermodynamics
@@ -1255,22 +1325,31 @@ class SolvationDatabase(object):
                     logging.error(molecule)
                     logging.error(molecule.to_adjacency_list())
                     raise
+                if not molecule.is_atom_in_cycle(atom):
+                    for atom_2 in molecule.get_nth_neighbor([atom], [1, 2]):
+                        if not molecule.is_atom_in_cycle(atom_2):
+                            # This is the correction for noncyclic structure. If `atom` or `atom_2` is in a cycle, do not apply this correction.
+                            # Note that previously we do not do gauche for cyclic molecule, which is unreasonable for cyclic molecule with a long tail.
+                            try:
+                                self._add_group_solute_data(solute_data,
+                                                            self.groups['longDistanceInteraction_noncyclic'],
+                                                            molecule, {'*1': atom, '*2': atom_2})
+                            except KeyError:
+                                pass
                 # Correct for gauche and 1,5- interactions
-                # Pair atom with its 1st and 2nd nonHydrogen neighbors, 
+                # Pair atom with its 1st and 2nd nonHydrogen neighbors,
                 # Then match the pair with the entries in the database longDistanceInteraction_noncyclic.py
-                # Currently we only have gauche(1,4) and 1,5 interactions in that file. 
+                # Currently we only have gauche(1,4) and 1,5 interactions in that file.
                 # If you want to add more corrections for longer distance, please call get_nth_neighbor() method accordingly.
                 # Potentially we could include other.py in this database, but it's a little confusing how to label atoms for the entries in other.py
-                except KeyError:
-                    pass
 
-        # Do long distance interaction correction for cyclic molecule. 
-        # First get smallest set of smallest rings. 
+        # Do long distance interaction correction for cyclic molecule.
+        # First get smallest set of smallest rings.
         # Then for every single ring, generate the atom pairs by itertools.permutation.
         # Finally match the atom pair with the database.
         # WIPWIPWIPWIPWIPWIPWIP         #########################################         WIPWIPWIPWIPWIPWIPWIP
-        # WIP: For now, in the database, if an entry describes the interaction between same groups, 
-        # it will be halved because it will be counted twice here. 
+        # WIP: For now, in the database, if an entry describes the interaction between same groups,
+        # it will be halved because it will be counted twice here.
         # Alternatively we could keep all the entries as their full values by using combinations instead of permutations here.
         # In that case, we need to add more lines to match from reverse side when we didn't hit the most specific level from the forward side.
         # PS: by saying 'forward side', I mean {'*1':atomPair[0], '*2':atomPair[1]}. So the following is the reverse side '{'*1':atomPair[1], '*2':atomPair[0]}'
@@ -1279,6 +1358,16 @@ class SolvationDatabase(object):
 
         # Do ring corrections separately because we only want to match
         # each ring one time
+        if cyclic:
+            sssr = molecule.get_smallest_set_of_smallest_rings()
+            for ring in sssr:
+                for atomPair in itertools.permutations(ring, 2):
+                    try:
+                        self._add_group_solute_data(solute_data, self.groups['longDistanceInteraction_cyclic'],
+                                                    molecule,
+                                                    {'*1': atomPair[0], '*2': atomPair[1]})
+                    except KeyError:
+                        pass
 
         if cyclic:
             monorings, polyrings = molecule.get_disparate_cycles()
@@ -1380,9 +1469,9 @@ class SolvationDatabase(object):
 
     def _average_children_solute(self, node):
         """
-        Use children's thermo data to guess thermo data of parent `node` 
-        that doesn't have thermo data built-in in tree yet. 
-        For `node` has children that have thermo data, return success flag 
+        Use children's thermo data to guess thermo data of parent `node`
+        that doesn't have thermo data built-in in tree yet.
+        For `node` has children that have thermo data, return success flag
         `True` and the average thermo data.
         For `node` whose children that all have no thermo data, return flag
         `False` and None for the thermo data.
@@ -1417,7 +1506,7 @@ class SolvationDatabase(object):
         matched_group_solutedata, matched_group, is_partial_match = self._add_ring_correction_solute_data_from_tree(
             None, self.groups['polycyclic'], molecule, polyring)
 
-        # if partial match (non-H atoms number same between 
+        # if partial match (non-H atoms number same between
         # polycylic ring in molecule and match group)
         # otherwise, apply heuristic algorithm
         if not is_partial_match:
@@ -1431,7 +1520,8 @@ class SolvationDatabase(object):
                                               verbose=True)
             else:
                 # keep matched_group_solutedata as is
-                solute_data = add_solute_data(solute_data, matched_group_solutedata, group_additivity=True, verbose=True)
+                solute_data = add_solute_data(solute_data, matched_group_solutedata, group_additivity=True,
+                                              verbose=True)
                 # By setting verbose=True, we turn on the comments of polycyclic correction to pass the unittest.
                 # Typically this comment is very short and also very helpful to check if the ring correction is calculated correctly.
         else:
@@ -1439,12 +1529,12 @@ class SolvationDatabase(object):
 
     def _add_poly_ring_correction_solute_data_from_heuristic(self, solute_data, polyring):
         """
-        INPUT: `polyring` as a list of `Atom` forming a polycyclic ring, which can 
+        INPUT: `polyring` as a list of `Atom` forming a polycyclic ring, which can
         only be partially matched.
         OUTPUT: `polyring` will be decomposed into a combination of 2-ring polycyclics
-        and each one will be looked up from polycyclic database. The heuristic formula 
-        is "polyring solute correction = sum of correction of all 2-ring sub-polycyclics - 
-        overlapped single-ring correction"; the calculated polyring solute correction 
+        and each one will be looked up from polycyclic database. The heuristic formula
+        is "polyring solute correction = sum of correction of all 2-ring sub-polycyclics -
+        overlapped single-ring correction"; the calculated polyring solute correction
         will be finally added to input `solute_data`.
         """
 
@@ -1463,12 +1553,13 @@ class SolvationDatabase(object):
                 if not estimated_bicyclic_solutedata:
                     estimated_bicyclic_solutedata = matched_group_solutedata
                 solute_data = add_solute_data(solute_data, estimated_bicyclic_solutedata, group_additivity=True,
-                                             verbose=True)
+                                              verbose=True)
             else:
                 # keep matched_group_solutedata as is
-                solute_data = add_solute_data(solute_data, matched_group_solutedata, group_additivity=True, verbose=True)
+                solute_data = add_solute_data(solute_data, matched_group_solutedata, group_additivity=True,
+                                              verbose=True)
 
-        # loop over 1-ring 
+        # loop over 1-ring
         for singleRingTuple, occurrence in ring_occurrences_dict.items():
             single_ring = list(singleRingTuple)
 
@@ -1492,9 +1583,8 @@ class SolvationDatabase(object):
                 solute_data = remove_solute_data(solute_data, single_ring_solutedata, True, True)
                 # By setting verbose=True, we turn on the comments of polycyclic correction to pass the unittest.
                 # Typically this comment is very short and also very helpful to check if the ring correction is calculated correctly.
-    
-    def get_bicyclic_correction_solute_data_from_heuristic(self, bicyclic):
 
+    def get_bicyclic_correction_solute_data_from_heuristic(self, bicyclic):
         # saturate if the bicyclic has unsaturated bonds
         # otherwise return None
         bicyclic_submol = convert_ring_to_sub_molecule(bicyclic)[0]
@@ -1508,17 +1598,17 @@ class SolvationDatabase(object):
         # split saturated bicyclic into two single ring submols
         saturated_single_ring_submols = split_bicyclic_into_single_rings(saturated_bicyclic_submol)
 
-        # apply formula: 
-        # bicyclic correction ~= saturated bicyclic correction - 
+        # apply formula:
+        # bicyclic correction ~= saturated bicyclic correction -
         # saturated single ring corrections + single ring corrections
 
         estimated_bicyclic_solute_data = SoluteData(
-        S = 0.0,
-        B = 0.0,
-        E = 0.0,
-        L = 0.0,
-        A = 0.0,
-        ),
+            S=0.0,
+            B=0.0,
+            E=0.0,
+            L=0.0,
+            A=0.0,
+        )
 
         saturated_bicyclic_solute_data = self._add_ring_correction_solute_data_from_tree(
             None, self.groups['polycyclic'], saturated_bicyclic_submol, saturated_bicyclic_submol.atoms)[0]
@@ -1566,9 +1656,11 @@ class SolvationDatabase(object):
                     None, self.groups['ring'], submol, submol.atoms)[0]
 
             estimated_bicyclic_solute_data = add_solute_data(estimated_bicyclic_solute_data,
-                                                             single_ring_solute_data, group_additivity=True, verbose=True)
+                                                             single_ring_solute_data, group_additivity=True,
+                                                             verbose=True)
 
         return estimated_bicyclic_solute_data
+
     # def estimate_solute_via_group_additivity(self, molecule):
     #     """
     #     Return the set of Abraham solute parameters corresponding to a given
@@ -1620,7 +1712,7 @@ class SolvationDatabase(object):
     #                 logging.error(saturated_struct.to_adjacency_list())
     #                 raise
     #             # Get solute data for non-atom centered groups (being found in this group
-    #             # database is optional)    
+    #             # database is optional)
     #             try:
     #                 self._add_group_solute_data(solute_data, self.groups['nonacentered'], saturated_struct, {'*': atom})
     #             except KeyError:
@@ -1712,7 +1804,7 @@ class SolvationDatabase(object):
         return delS
 
     def get_solvation_correction(self, solute_data, solvent_data):
-        """ 
+        """
         Given a solute_data and solvent_data object, calculates the enthalpy, entropy,
         and Gibbs free energy of solvation at 298 K. Returns a SolvationCorrection
         object
