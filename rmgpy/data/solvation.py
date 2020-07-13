@@ -582,6 +582,9 @@ class SolvationDatabase(object):
             for category in categories
         }
 
+        self.record_ring_generic_nodes()
+        self.record_polycylic_generic_nodes()
+
     def save(self, path):
         """
         Save the solvation database to the given `path` on disk, where `path`
@@ -675,6 +678,37 @@ class SolvationDatabase(object):
             treestr=os.path.join(groups_path, 'Abraham_Tree.txt'),
             libstr=os.path.join(groups_path, 'Abraham_Library.txt'),
         )
+
+    def record_polycylic_generic_nodes(self):
+        """
+        Identify generic nodes in tree for polycyclic groups.
+        Saves them as a list in the `generic_nodes` attribute
+        in the polycyclic :class:`SoluteGroups` object, which
+        must be pre-loaded.
+
+        Necessary for polycyclic heuristic.
+        """
+        self.groups['polycyclic'].generic_nodes = ['PolycyclicRing']
+        for label, entry in self.groups['polycyclic'].entries.items():
+            if isinstance(entry.data, SoluteData):
+                continue
+            self.groups['polycyclic'].generic_nodes.append(label)
+
+    def record_ring_generic_nodes(self):
+        """
+        Identify generic nodes in tree for ring groups.
+        Saves them as a list in the `generic_nodes` attribute
+        in the ring :class:`SoluteGroups` object, which
+        must be pre-loaded.
+
+        Necessary for polycyclic heuristic.
+        """
+        self.groups['ring'].generic_nodes = ['Ring']
+        for label, entry in self.groups['ring'].entries.items():
+            if isinstance(entry.data, SoluteData):
+                continue
+            self.groups['ring'].generic_nodes.append(label)
+
 
     def get_solute_data(self, species):
         """
