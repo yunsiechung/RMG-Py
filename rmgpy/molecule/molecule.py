@@ -2084,6 +2084,12 @@ class Molecule(Graph):
                 return True
         return False
 
+    def has_halogen(self):
+        for atom in self.vertices:
+            if atom.is_halogen():
+                return True
+        return False
+
     def is_aryl_radical(self, aromatic_rings=None):
         """
         Return ``True`` if the molecule only contains aryl radicals,
