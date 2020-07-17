@@ -1191,6 +1191,25 @@ class SolvationDatabase(object):
 
         return solute_data
 
+    def substitute_halogen_with_hydrogen(self, molecule):
+        """
+        Substitutes halogens in a molecule with hydrogens and returns a new molecule.
+        If a molecule doesn't contain any halogens, it returns the original molecule.
+        """
+        if molecule.has_halogen():
+            adjacency_list = molecule.to_adjacency_list()
+            substituted_adjacency_list = ''
+            for line in adjacency_list.split('\n')[:-1]: # don't include the last line because it's an empty string
+                element = line.split()[1]
+                if element in ['F', 'Cl', 'Br', 'I']:
+                    line = line.replace(element, 'H')
+                    line = line.replace('p3', 'p0')
+                substituted_adjacency_list += line + '\n'
+            substituted_struct = Molecule().from_adjacency_list(substituted_adjacency_list)
+            return substituted_struct
+        else:
+            return molecule
+
     def _add_polycyclic_correction_solute_data(self, solute_data, molecule, polyring):
         """
         INPUT: `polyring` as a list of `Atom` forming a polycyclic ring
