@@ -378,6 +378,13 @@ class SoluteData(object):
 
         self.V = Vtot / 100  # division by 100 to get units correct.
 
+    def is_all_zeros(self):
+        """
+        Returns True if all solute parameters except V (S, B, E, L, A) are zero
+        """
+        if self.S == 0.0 and self.B == 0.0 and self.E == 0.0 and self.L == 0.0 and self.A == 0.0:
+            return True
+        return False
 
 ################################################################################
 
@@ -1096,12 +1103,23 @@ class SolvationDatabase(object):
             if atom.is_non_hydrogen():
                 # Get initial thermo estimate from main group database
                 try:
-                    self._add_group_solute_data(solute_data, self.groups['group'], molecule, {'*': atom})
+                    data_added = self._add_group_solute_data(solute_data, self.groups['group'], molecule, {'*': atom})
                 except KeyError:
                     logging.error("Couldn't find in main solute database:")
                     logging.error(molecule)
                     logging.error(molecule.to_adjacency_list())
                     raise
+                if not data_added:
+                    neighbors = ''.join(sorted([atom2.atomtype.label for atom2 in atom.edges.keys()
+                                                if atom2.atomtype.label != 'H']))
+                    neighbors += 'H' * len(['H' for atom2 in atom.edges.keys() if atom2.atomtype.label == 'H'])
+                    if atom.atomtype.label == 'Cb':
+                        neighbors = neighbors.replace('Cb', '')
+                    group_str = f'{atom.atomtype.label}-{neighbors}'
+                    if solute_data.comment:
+                        solute_data.comment += f' + missing({group_str})'
+                    else:
+                        solute_data.comment = f'missing({group_str})'
                 if not molecule.is_atom_in_cycle(atom):
                     for atom_2 in molecule.get_nth_neighbor([atom], [1, 2]):
                         if not molecule.is_atom_in_cycle(atom_2):
@@ -1476,9 +1494,14 @@ class SolvationDatabase(object):
         #   node = database.tree.parent[node]
         # print result[4:]
         if solute_data is None:
-            return data
+            if data.is_all_zeros():
+                return data, False
+            else:
+                return data, True
         else:
-            return add_solute_data(solute_data, data, group_additivity=True)
+            if data.is_all_zeros():
+                return solute_data, False
+            return add_solute_data(solute_data, data, group_additivity=True), True
 
     def _remove_group_solute_data(self, solute_data, database, molecule, atom):
         """
