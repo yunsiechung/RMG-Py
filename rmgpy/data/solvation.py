@@ -1088,13 +1088,13 @@ class SolvationDatabase(object):
         # will probably not visit the right atoms, and so will get the thermo wrong
         molecule.sort_atoms()
 
-        # Create the SoluteData object with the intercepts from the Platts groups
+        # Create the SoluteData object
         solute_data = SoluteData(
-            S=0.295168556,
-            B=0.042381053,
-            E=0.104860364,
-            L=-0.22236423,
-            A=0.084781464,
+            S=0.0,
+            B=0.0,
+            E=0.0,
+            L=0.0,
+            A=0.0,
         )
         cyclic = molecule.is_cyclic()
         # Generate estimate of thermodynamics
