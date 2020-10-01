@@ -322,7 +322,7 @@ class SoluteData(object):
         1: 8.71, 2: 6.75,
         6: 16.35, 7: 14.39, 8: 12.43, 9: 10.47, 10: 8.51,
         14: 26.83, 15: 24.87, 16: 22.91, 17: 20.95, 18: 18.99,
-        35: 26.21,
+        35: 26.21, 53: 34.53,
     }
 
     def __init__(self, S=None, B=None, E=None, L=None, A=None, V=None, comment=""):
@@ -669,6 +669,7 @@ class SolvationDatabase(object):
             'polycyclic',
             'longDistanceInteraction_cyclic',
             'longDistanceInteraction_noncyclic',
+            'halogen'
         ]
         self.groups = {
             category: SoluteGroups(label=category).load(os.path.join(path, category + '.py'),
@@ -829,6 +830,10 @@ class SolvationDatabase(object):
                 molecule.clear_labeled_atoms()
                 # First see if the saturated molecule is in the libraries.
                 solute_data = self.estimate_radical_solute_data_via_hbi(molecule, self.get_solute_data_from_library)
+            if molecule.has_halogen():
+                # If the molecule is halogenated, check if any of the substituted forms are in the libraries
+                # first and perform halogen correction on them
+                solute_data = self.estimate_halogen_solute_data(molecule, self.get_solute_data_from_library)
 
         if solute_data is None:
             # Solute or its saturated structure is not found in libraries. Use group additivty to determine solute data
@@ -984,6 +989,8 @@ class SolvationDatabase(object):
 
         if molecule.is_radical():
             solute_data = self.estimate_radical_solute_data_via_hbi(molecule, self.compute_group_additivity_solute)
+        elif molecule.has_halogen():
+            solute_data = self.estimate_halogen_solute_data(molecule, self.compute_group_additivity_solute)
         else:
             solute_data = self.compute_group_additivity_solute(molecule)
         return solute_data
@@ -1056,6 +1063,74 @@ class SolvationDatabase(object):
                     try:
                         self._remove_group_solute_data(solute_data, self.groups['longDistanceInteraction_cyclic'],
                                                        saturated_struct, {'*1': atomPair[0], '*2': atomPair[1]})
+                    except KeyError:
+                        pass
+            sssr = molecule.get_smallest_set_of_smallest_rings()
+            for ring in sssr:
+                for atomPair in itertools.permutations(ring, 2):
+                    try:
+                        self._add_group_solute_data(solute_data, self.groups['longDistanceInteraction_cyclic'],
+                                                    molecule,
+                                                    {'*1': atomPair[0], '*2': atomPair[1]})
+                    except KeyError:
+                        pass
+
+        # prevents the original thermo species name being used for the HBI corrected radical in species generation
+        solute_data.label = ''
+
+        return solute_data
+
+    def estimate_halogen_solute_data(self, molecule, stable_solute_data_estimator):
+        """
+        Estimate the solute data of a halogenated molecule by substituting halogens with hydrogens,
+        applying the provided stable_solute_data_estimator method on the substituted_struct species,
+        then applying halogen corrections for the halogenated site(s).
+        """
+        if not molecule.has_halogen():
+            raise ValueError("Method only valid for halogenated molecule.")
+
+        substituted_struct = self.substitute_halogen_with_hydrogen(molecule)
+
+        # Get solute data estimate for saturated form of structure
+        if stable_solute_data_estimator == self.get_solute_data_from_library:
+            # Get data from libraries
+            substituted_spec = Species(molecule=[substituted_struct])
+            solute_data_substituted = stable_solute_data_estimator(substituted_spec, library=self.libraries['solute'])
+            if solute_data_substituted:
+                if len(solute_data_substituted) != 3:
+                    raise RuntimeError("solute_data should be a tuple (solute_data, library, entry), "
+                                       "not {0}".format(solute_data_substituted))
+                substituted_label = solute_data_substituted[2].label
+                solute_data_substituted = solute_data_substituted[0]
+                solute_data_substituted.comment += "Solute library: " + substituted_label
+        else:
+            solute_data_substituted = stable_solute_data_estimator(substituted_struct)
+
+        if solute_data_substituted is None:
+            # We couldn't get solute data for the substituted species from libraries.
+            # However, if we were trying group additivity, this could be a problem
+            if stable_solute_data_estimator == self.compute_group_additivity_solute:
+                logging.info("Solute data of saturated {0} of molecule {1} is None.".format(substituted_struct, molecule))
+            return None
+
+        solute_data = solute_data_substituted
+
+        # For each halogenated site, get halogen correction
+        for atom in molecule.atoms:
+            if atom.is_halogen():
+                try:
+                    self._add_group_solute_data(solute_data, self.groups['halogen'], molecule, {'*': atom})
+                except KeyError:
+                    pass
+
+        # Remove all of the long distance interactions of the substituted structure. Then add the long interactions of the halogenated molecule.
+        if substituted_struct.is_cyclic():
+            sssr = substituted_struct.get_smallest_set_of_smallest_rings()
+            for ring in sssr:
+                for atomPair in itertools.permutations(ring, 2):
+                    try:
+                        self._remove_group_solute_data(solute_data, self.groups['longDistanceInteraction_cyclic'],
+                                                       substituted_struct, {'*1': atomPair[0], '*2': atomPair[1]})
                     except KeyError:
                         pass
             sssr = molecule.get_smallest_set_of_smallest_rings()
