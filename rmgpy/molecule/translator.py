@@ -488,6 +488,16 @@ def _read(mol, identifier, identifier_type, backend, raise_atomtype_exception=Tr
             mol = _rdkit_translator(identifier, identifier_type, mol)
         elif option == 'openbabel':
             mol = _openbabel_translator(identifier, identifier_type, mol)
+            # _openbabel_translator cannot create correct mol objects for molecules containing the phosphorus with
+            # P3d atom type that is double bonded to oxygen. _openbabel_translator incorrectly recognizes P3d as P5d atom type.
+            # For example, for phosphine oxide with SMILES "O=P" and InChI "InChI=1S/HOP/c1-2/h2H", if mol is created
+            # from smiles using openbabel, it incorrectly adds two hydrogens to phosphorus and gives a wrong molecule
+            # with SMILES "O=[PH3]" and InChI "InChI=1S/H3OP/c1-2/h2H3". Or if mol is created from inchi of phosphine oxide
+            # using openbabel, the resulting mol will have a phosphorus with P5d atom type, having two unpaird electrons
+            # instead of one lone pair (triplet form instead of singlet form)
+            # To prevent this, if a molecule has phosphorus, it will use _rdkit_translator instead
+            if any([atom.is_phosphorus() for atom in mol.atoms]):
+                mol = _rdkit_translator(identifier, identifier_type, mol)
         else:
             raise NotImplementedError("Unrecognized backend {0}".format(option))
 
