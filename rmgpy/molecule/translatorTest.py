@@ -1092,6 +1092,15 @@ class ParsingTest(unittest.TestCase):
         smiles = '[O][O]'
         self.compare(adjlist, smiles)
 
+        # Test O=P, phosphine oxide
+        adjlist = '''
+        1 P u0 p1 c0 {2,D} {3,S}
+        2 O u0 p2 c0 {1,D}
+        3 H u0 p0 c0 {1,S}
+        '''
+        smiles = 'O=P'
+        self.compare(adjlist, smiles)
+
     def test_from_inchi(self):
         inchi = 'InChI=1S/CH4/h1H4'
         mol = from_inchi(Molecule(), inchi)
@@ -1100,6 +1109,9 @@ class ParsingTest(unittest.TestCase):
         inchi = "InChI=1S/CH5N/c1-2/h2H2,1H3"
         mol = from_inchi(Molecule(), inchi)
         self.assertEquals(mol.atoms[1].atomtype, ATOMTYPES['N3s'])
+        inchi = "InChI=1S/HOP/c1-2/h2H"
+        mol = from_inchi(Molecule(), inchi)
+        self.assertEquals(mol.atoms[0].atomtype, ATOMTYPES['P3d'])
 
     # current implementation of SMARTS is broken
     def test_from_smarts(self):
