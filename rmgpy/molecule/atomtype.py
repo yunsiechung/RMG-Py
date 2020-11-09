@@ -259,7 +259,7 @@ ATOMTYPES['R']    = AtomType(label='R', generic=[], specific=[
     'Val4','Val5','Val6','Val7',    
     'He','Ne','Ar',
     'C','Ca','Cs','Csc','Cd','CO','CS','Cdd','Cdc','Ct','Cb','Cbf','Cq','C2s','C2sc','C2d','C2dc','C2tc',
-    'N','N0sc','N1s','N1sc','N1dc','N3s','N3sc','N3d','N3t','N3b','N5sc','N5dc','N5ddc','N5dddc','N5tc','N5b','N5bd',
+    'N','N0sc','N1s','N1sc','N1dc','N3s','N3d','N3t','N3b','N5sc','N5dc','N5ddc','N5dddc','N5tc','N5b','N5bd',
     'O','Oa','O0sc','O2s','O2sc','O2d','O4sc','O4dc','O4tc','O4b',
     'Si','Sis','Sid','Sidd','Sit','SiO','Sib','Sibf','Siq',
     'P','P0sc','P1s','P1sc','P1dc','P3s','P3d','P3t','P3b','P5s','P5sc','P5d','P5dd','P5dc','P5ddc','P5t','P5td','P5tc','P5b','P5bd',
@@ -273,7 +273,7 @@ ATOMTYPES['R!H']  = AtomType(label='R!H', generic=['R'], specific=[
     'Val4','Val5','Val6','Val7',
     'He','Ne','Ar',
     'C','Ca','Cs','Csc','Cd','CO','CS','Cdd','Cdc','Ct','Cb','Cbf','Cq','C2s','C2sc','C2d','C2dc','C2tc',
-    'N','N0sc','N1s','N1sc','N1dc','N3s','N3sc','N3d','N3t','N3b','N5sc','N5dc','N5ddc','N5dddc','N5tc','N5b','N5bd',
+    'N','N0sc','N1s','N1sc','N1dc','N3s','N3d','N3t','N3b','N5sc','N5dc','N5ddc','N5dddc','N5tc','N5b','N5bd',
     'O','Oa','O0sc','O2s','O2sc','O2d','O4sc','O4dc','O4tc','O4b',
     'Si','Sis','Sid','Sidd','Sit','SiO','Sib','Sibf','Siq',
     'P','P0sc','P1s','P1sc','P1dc','P3s','P3d','P3t','P3b','P5s','P5sc','P5d','P5dd','P5dc','P5ddc','P5t','P5td','P5tc','P5b','P5bd',
@@ -288,7 +288,7 @@ ATOMTYPES['Val4'] = AtomType(label='Val4', generic=['R', 'R!H'], specific=[
     'Si','Sis','Sid','Sidd','Sit','SiO','Sib','Sibf','Siq'])
 
 ATOMTYPES['Val5'] = AtomType(label='Val5', generic=['R', 'R!H'], specific=[
-    'N','N0sc','N1s','N1sc','N1dc','N3s','N3sc','N3d','N3t','N3b','N5sc','N5dc','N5ddc','N5dddc','N5tc','N5b','N5bd',
+    'N','N0sc','N1s','N1sc','N1dc','N3s','N3d','N3t','N3b','N5sc','N5dc','N5ddc','N5dddc','N5tc','N5b','N5bd',
     'P','P0sc','P1s','P1sc','P1dc','P3s','P3d','P3t','P3b','P5s','P5sc','P5d','P5dd','P5dc','P5ddc','P5t','P5td','P5tc','P5b','P5bd'])
 
 ATOMTYPES['Val6'] = AtomType(label='Val6', generic=['R', 'R!H'], specific=[
@@ -361,7 +361,7 @@ ATOMTYPES['C2tc'] = AtomType('C2tc', generic=['R', 'R!H', 'C', 'Val4'], specific
                              single=[0], all_double=[0], r_double=[], o_double=[], s_double=[], triple=[1], quadruple=[], benzene=[0], lone_pairs=[1], charge=[-1])
 # examples for C2tc: [C-]#[O+], H[N+]#[C-]
 
-ATOMTYPES['N'] = AtomType('N', generic=['R', 'R!H', 'Val5'], specific=['N0sc', 'N1s', 'N1sc', 'N1dc', 'N3s', 'N3sc', 'N3d', 'N3t', 'N3b', 'N5sc', 'N5dc', 'N5ddc', 'N5dddc', 'N5tc', 'N5b', 'N5bd'],
+ATOMTYPES['N'] = AtomType('N', generic=['R', 'R!H', 'Val5'], specific=['N0sc', 'N1s', 'N1sc', 'N1dc', 'N3s', 'N3d', 'N3t', 'N3b', 'N5sc', 'N5dc', 'N5ddc', 'N5dddc', 'N5tc', 'N5b', 'N5bd'],
                           single=[], all_double=[], r_double=[], o_double=[], s_double=[], triple=[], quadruple=[], benzene=[], lone_pairs=[], charge=[])
 ATOMTYPES['N0sc'] = AtomType('N0sc', generic=['R', 'R!H', 'N', 'Val5'], specific=[],  # (shared electrons = 7-8)
                              single=[0,1], all_double=[0], r_double=[0], o_double=[0], s_double=[0], triple=[0], quadruple=[], benzene=[0], lone_pairs=[3], charge=[-2])
@@ -378,9 +378,6 @@ ATOMTYPES['N1dc'] = AtomType('N1dc', generic=['R', 'R!H', 'N', 'Val5'], specific
 ATOMTYPES['N3s'] = AtomType('N3s', generic=['R', 'R!H', 'N', 'Val5'], specific=[],  # (shared electrons = 5-8)
                             single=[0,1,2,3], all_double=[0], r_double=[0], o_double=[0], s_double=[0], triple=[0], quadruple=[], benzene=[0], lone_pairs=[1], charge=[0])
 # examples for N3s: NH3, NH2, NH, N, C[NH]...
-ATOMTYPES['N3sc'] = AtomType('N3sc', generic=['R', 'R!H', 'N', 'Val5'], specific=[],  # (shared electrons = 4-6)
-                             single=[0,1,2], all_double=[0], r_double=[0], o_double=[0], s_double=[0], triple=[0], quadruple=[], benzene=[0], lone_pairs=[1], charge=[+1])
-# examples for N3sc: !! N3sc should eventually be deleted, see #1206
 ATOMTYPES['N3d'] = AtomType('N3d', generic=['R', 'R!H', 'N', 'Val5'], specific=[],  # (shared electrons = 7-8)
                             single=[0,1], all_double=[1], r_double=[], o_double=[], s_double=[], triple=[0], quadruple=[], benzene=[0], lone_pairs=[1], charge=[0])
 # examples for N3d: N=O, N=N, C=N, [O]N=O, [N]=O, [N]=C
@@ -657,15 +654,14 @@ ATOMTYPES['Cq'].set_actions(increment_bond=[], decrement_bond=['Ct'], form_bond=
 
 ATOMTYPES['N'].set_actions(increment_bond=['N'], decrement_bond=['N'], form_bond=['N'], break_bond=['N'], increment_radical=['N'], decrement_radical=['N'], increment_lone_pair=['N'], decrement_lone_pair=['N'])
 ATOMTYPES['N0sc'].set_actions(increment_bond=[], decrement_bond=[], form_bond=['N0sc'], break_bond=['N0sc'], increment_radical=['N0sc'], decrement_radical=['N0sc'], increment_lone_pair=[], decrement_lone_pair=['N1s', 'N1sc'])
-ATOMTYPES['N1s'].set_actions(increment_bond=['N1dc'], decrement_bond=[], form_bond=['N1s'], break_bond=['N1s'], increment_radical=['N1s'], decrement_radical=['N1s'], increment_lone_pair=['N0sc'], decrement_lone_pair=['N3s', 'N3sc'])
-ATOMTYPES['N1sc'].set_actions(increment_bond=[], decrement_bond=[], form_bond=['N1sc'], break_bond=['N1sc'], increment_radical=['N1sc'], decrement_radical=['N1sc'], increment_lone_pair=[], decrement_lone_pair=['N3s', 'N3sc'])
+ATOMTYPES['N1s'].set_actions(increment_bond=['N1dc'], decrement_bond=[], form_bond=['N1s'], break_bond=['N1s'], increment_radical=['N1s'], decrement_radical=['N1s'], increment_lone_pair=['N0sc'], decrement_lone_pair=['N3s'])
+ATOMTYPES['N1sc'].set_actions(increment_bond=[], decrement_bond=[], form_bond=['N1sc'], break_bond=['N1sc'], increment_radical=['N1sc'], decrement_radical=['N1sc'], increment_lone_pair=[], decrement_lone_pair=['N3s'])
 ATOMTYPES['N1dc'].set_actions(increment_bond=['N1dc'], decrement_bond=['N1s', 'N1dc'], form_bond=[], break_bond=[], increment_radical=[], decrement_radical=[], increment_lone_pair=[], decrement_lone_pair=['N3d'])
 ATOMTYPES['N3s'].set_actions(increment_bond=['N3d'], decrement_bond=[], form_bond=['N3s'], break_bond=['N3s'], increment_radical=['N3s'], decrement_radical=['N3s'], increment_lone_pair=['N1s', 'N1sc'], decrement_lone_pair=['N5sc'])
-ATOMTYPES['N3sc'].set_actions(increment_bond=['N3d'], decrement_bond=[], form_bond=['N3sc'], break_bond=['N3sc'], increment_radical=['N3sc'], decrement_radical=['N3sc'], increment_lone_pair=['N1s', 'N1sc'], decrement_lone_pair=['N5sc'])
-ATOMTYPES['N3d'].set_actions(increment_bond=['N3t'], decrement_bond=['N3s', 'N3sc'], form_bond=['N3d'], break_bond=['N3d'], increment_radical=['N3d'], decrement_radical=['N3d'], increment_lone_pair=['N1dc'], decrement_lone_pair=['N5dc'])
+ATOMTYPES['N3d'].set_actions(increment_bond=['N3t'], decrement_bond=['N3s'], form_bond=['N3d'], break_bond=['N3d'], increment_radical=['N3d'], decrement_radical=['N3d'], increment_lone_pair=['N1dc'], decrement_lone_pair=['N5dc'])
 ATOMTYPES['N3t'].set_actions(increment_bond=[], decrement_bond=['N3d'], form_bond=[], break_bond=[], increment_radical=[], decrement_radical=[], increment_lone_pair=[], decrement_lone_pair=[])
 ATOMTYPES['N3b'].set_actions(increment_bond=[], decrement_bond=[], form_bond=[], break_bond=[], increment_radical=[], decrement_radical=[], increment_lone_pair=[], decrement_lone_pair=[])
-ATOMTYPES['N5sc'].set_actions(increment_bond=['N5dc'], decrement_bond=[], form_bond=['N5sc'], break_bond=['N5sc'], increment_radical=['N5sc'], decrement_radical=['N5sc'], increment_lone_pair=['N3s', 'N3sc'], decrement_lone_pair=[])
+ATOMTYPES['N5sc'].set_actions(increment_bond=['N5dc'], decrement_bond=[], form_bond=['N5sc'], break_bond=['N5sc'], increment_radical=['N5sc'], decrement_radical=['N5sc'], increment_lone_pair=['N3s'], decrement_lone_pair=[])
 ATOMTYPES['N5dc'].set_actions(increment_bond=['N5ddc', 'N5tc'], decrement_bond=['N5sc'], form_bond=['N5dc'], break_bond=['N5dc'], increment_radical=['N5dc'], decrement_radical=['N5dc'], increment_lone_pair=['N3d'], decrement_lone_pair=[])
 ATOMTYPES['N5ddc'].set_actions(increment_bond=['N5dddc'], decrement_bond=['N5dc'], form_bond=[], break_bond=[], increment_radical=[], decrement_radical=[], increment_lone_pair=[], decrement_lone_pair=[])
 ATOMTYPES['N5dddc'].set_actions(increment_bond=[], decrement_bond=['N5ddc'], form_bond=[], break_bond=[], increment_radical=[], decrement_radical=[], increment_lone_pair=[], decrement_lone_pair=[])
