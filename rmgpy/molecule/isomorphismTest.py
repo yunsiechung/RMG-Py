@@ -78,9 +78,9 @@ def create_molecule(element, u1, c1):
     adjlist = get_molecule_string(element, u1, c1)
     logging.info('Creating molecule: {0}'.format(adjlist))
     mol = None
-    if element == 'P' and c1 == 1 and get_lone_pairs(element) == 1:
-        # AtomTypeError is raised when phosphorus has +1 partial charge and 1 lone pair.
-        # Although this will not raise InvalidAdjacencyListError, these are chemically infeasible.
+    if element in ['N', 'P'] and c1 == 1 and get_lone_pairs(element) == 1:
+        # AtomTypeError is raised when phosphorus or nitrogen has +1 partial charge and 1 lone pair.
+        # This is chemically infeasible, so it's skipped. Note that it does not raise InvalidAdjacencyListError.
         pass
     else:
         try:
