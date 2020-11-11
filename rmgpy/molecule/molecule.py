@@ -411,6 +411,13 @@ class Atom(Vertex):
         """
         return self.element.number in [7, 8, 16]
 
+    def is_halogen(self):
+        """
+        Return ``True`` if the atom represent either fluorine, chlorine, bromine, or iodine
+        ``False`` if it does not.
+        """
+        return self.element.number in [9, 17, 35, 53]
+
     def increment_radical(self):
         """
         Update the atom pattern as a result of applying a GAIN_RADICAL action,

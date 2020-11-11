@@ -75,6 +75,8 @@ cdef class Atom(Vertex):
     cpdef bint is_iodine(self)
 
     cpdef bint is_nos(self)
+
+    cpdef bint is_halogen(self)
     
     cpdef bint is_surface_site(self)
     
