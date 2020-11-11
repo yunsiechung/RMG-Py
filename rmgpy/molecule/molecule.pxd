@@ -245,6 +245,8 @@ cdef class Molecule(Graph):
 
     cpdef bint has_lone_pairs(self) except -2
 
+    cpdef bint has_halogen(self) except -2
+
     cpdef bint is_aryl_radical(self, list aromatic_rings=?) except -2
 
     cpdef float calculate_symmetry_number(self) except -1
