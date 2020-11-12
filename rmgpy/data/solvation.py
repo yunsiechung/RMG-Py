@@ -661,6 +661,7 @@ class SolvationDatabase(object):
             'polycyclic',
             'longDistanceInteraction_cyclic',
             'longDistanceInteraction_noncyclic',
+            'halogen'
         ]
         self.groups = {
             category: SoluteGroups(label=category).load(os.path.join(path, category + '.py'),
@@ -830,14 +831,26 @@ class SolvationDatabase(object):
             solute_data = solute_data[0]
         else:
             # Solute not found in any loaded libraries, so estimate
-            # First try finding stable species in libraries and using HBI
+            # First try finding stable species in libraries and then use HBI / halogen solvation correction
             molecule = species.molecule[0]
-            if molecule.get_radical_count() > 0:
+            if molecule.is_radical() and molecule.has_halogen():
+                # If the molecule is a radical and has at least one halogen atom, saturate and substitute halogens with
+                # hydrogen first and check if any of the saturated and substituted forms are in the libraries.
+                # Then apply halogen correction using the saturated form. Lastly, perform an HBI correction
+                # on the original molecule.
+                molecule.clear_labeled_atoms()
+                # First see if the saturated molecule is in the libraries.
+                solute_data = self.estimate_radical_halogen_solute_data(molecule, self.get_solute_data_from_library)
+            elif molecule.is_radical():
                 # If the molecule is a radical, check if any of the saturated forms are in the libraries
                 # first and perform an HBI correction on them
                 molecule.clear_labeled_atoms()
                 # First see if the saturated molecule is in the libraries.
                 solute_data = self.estimate_radical_solute_data_via_hbi(molecule, self.get_solute_data_from_library)
+            elif molecule.has_halogen():
+                # If the molecule is halogenated, check if any of the substituted forms are in the libraries
+                # first and perform halogen correction on them
+                solute_data = self.estimate_halogen_solute_data(molecule, self.get_solute_data_from_library)
 
         if solute_data is None:
             # Solute or its saturated structure is not found in libraries. Use group additivty to determine solute data
@@ -910,20 +923,143 @@ class SolvationDatabase(object):
         additivity values. If no group additivity values are loaded, a
         :class:`DatabaseError` is raised.
         """
-        # For thermo estimation we need the atoms to already be sorted because we
+        # For solute data estimation we need the atoms to already be sorted because we
         # iterate over them; if the order changes during the iteration then we
-        # will probably not visit the right atoms, and so will get the thermo wrong
+        # will probably not visit the right atoms, and so will get the solute data wrong
         molecule.sort_atoms()
 
-        if molecule.is_radical():
+        if molecule.is_radical() and molecule.has_halogen():
+            # If the molecule is a radical and has at least one halogen atom, saturate and substitute halogens with
+            # hydrogen first and calculate the solute data for the saturated and substituted form using group additivity.
+            # Then apply halogen correction using the saturated form. Lastly, perform an HBI correction
+            # on the original molecule.
+            molecule.clear_labeled_atoms()
+            solute_data = self.estimate_radical_halogen_solute_data(molecule, self.compute_group_additivity_solute)
+        elif molecule.is_radical():
+            # If the molecule is a radical, compute the solute data for the saturated form first
+            # and perform an HBI correction on it.
             solute_data = self.estimate_radical_solute_data_via_hbi(molecule, self.compute_group_additivity_solute)
+        elif molecule.has_halogen():
+            # If the molecule is halogenated, compute the solute data for the substituted form first
+            # and perform halogen correction on it.
+            solute_data = self.estimate_halogen_solute_data(molecule, self.compute_group_additivity_solute)
         else:
             solute_data = self.compute_group_additivity_solute(molecule)
         return solute_data
 
+    def estimate_radical_halogen_solute_data(self, molecule, stable_solute_data_estimator):
+        """
+        Estimate the solute data of a halogenated radical molecule by saturating it and
+        substituting halogens with hydrogen atoms, applying the provided stable_solute_data_estimator
+        method on the saturated and substituted form, then applying halogen corrections for
+        the halogenated site(s) on the saturated form and finally applying hydrogen bond
+        increment corrections for the radical site(s) on the original molecule.
+        """
+        if not molecule.is_radical() and not molecule.has_halogen():
+            raise ValueError("Method only valid for radicals with halogens")
+
+        # First saturate the molecule
+        saturated_struct = molecule.copy(deep=True)
+        added = saturated_struct.saturate_radicals()
+        saturated_struct.props['saturated'] = True
+        # Then substitute halogens with hydrogen atoms
+        saturated_substituted_struct = self.substitute_halogen_with_hydrogen(saturated_struct)
+
+        # Get solute data estimate for saturated and substituted form of structure
+        if stable_solute_data_estimator == self.get_solute_data_from_library:
+            # Get data from libraries
+            saturated_substituted_spec = Species(molecule=[saturated_substituted_struct])
+            solute_data_saturated_substituted = stable_solute_data_estimator(saturated_substituted_spec, library=self.libraries['solute'])
+            if solute_data_saturated_substituted:
+                if len(solute_data_saturated_substituted) != 3:
+                    raise RuntimeError("solute_data should be a tuple (solute_data, library, entry), "
+                                       "not {0}".format(solute_data_saturated_substituted))
+                saturated_substituted_label = solute_data_saturated_substituted[2].label
+                solute_data_saturated_substituted = solute_data_saturated_substituted[0]
+                solute_data_saturated_substituted.comment += "Solute library: " + saturated_substituted_label
+        else:
+            solute_data_saturated_substituted = stable_solute_data_estimator(saturated_substituted_struct)
+
+        if solute_data_saturated_substituted is None:
+            # We couldn't get solute data for the saturated and substituted species from libraries.
+            # However, if we were trying group additivity, this could be a problem
+            if stable_solute_data_estimator == self.compute_group_additivity_solute:
+                logging.info("Solute data of saturated and halogen-substituted {0} of molecule {1} is None.".format(saturated_substituted_struct, molecule))
+            return None
+
+        solute_data = solute_data_saturated_substituted
+
+        # For each halogenated site on the saturated form , apply halogen correction.
+        for atom in saturated_struct.atoms:
+            if atom.is_halogen():
+                try:
+                    self._add_group_solute_data(solute_data, self.groups['halogen'], saturated_struct, {'*': atom})
+                except KeyError:
+                    pass
+
+        # Remove all of the long distance interactions of the saturated and substituted structure.
+        if saturated_substituted_struct.is_cyclic():
+            sssr = saturated_substituted_struct.get_smallest_set_of_smallest_rings()
+            for ring in sssr:
+                for atomPair in itertools.permutations(ring, 2):
+                    try:
+                        self._remove_group_solute_data(solute_data, self.groups['longDistanceInteraction_cyclic'],
+                                                       saturated_substituted_struct, {'*1': atomPair[0], '*2': atomPair[1]})
+                    except KeyError:
+                        pass
+
+        # For each radical site, get radical correction
+        # Only one radical site should be considered at a time; all others
+        # should be saturated with hydrogen atoms
+        for atom in added:
+            # Remove the added hydrogen atoms and bond and restore the radical
+            for H, bond in added[atom]:
+                saturated_struct.remove_bond(bond)
+                saturated_struct.remove_atom(H)
+                atom.increment_radical()
+            saturated_struct.update()
+            try:
+                self._add_group_solute_data(solute_data, self.groups['radical'], saturated_struct, {'*': atom})
+            except KeyError:
+                pass
+            # Re-saturate
+            for H, bond in added[atom]:
+                saturated_struct.add_atom(H)
+                saturated_struct.add_bond(bond)
+                atom.decrement_radical()
+
+        # Remove all of the long distance interactions of the saturated structure. Then add the long interactions of
+        # the radical molecule with halogens.
+        # Take C1=CC=C([O])C(O)=C1 as an example, we need to remove the interation of OH-OH, then add the interaction of Oj-OH.
+        # For now, we only apply this part to cyclic structure because we only have radical interaction data for aromatic radical.
+        if saturated_struct.is_cyclic():
+            sssr = saturated_struct.get_smallest_set_of_smallest_rings()
+            for ring in sssr:
+                for atomPair in itertools.permutations(ring, 2):
+                    try:
+                        self._remove_group_solute_data(solute_data,
+                                                       self.groups['longDistanceInteraction_cyclic'],
+                                                       saturated_struct, {'*1': atomPair[0], '*2': atomPair[1]})
+                    except KeyError:
+                        pass
+            sssr = molecule.get_smallest_set_of_smallest_rings()
+            for ring in sssr:
+                for atomPair in itertools.permutations(ring, 2):
+                    try:
+                        self._add_group_solute_data(solute_data, self.groups['longDistanceInteraction_cyclic'],
+                                                    molecule,
+                                                    {'*1': atomPair[0], '*2': atomPair[1]})
+                    except KeyError:
+                        pass
+
+        # prevents the original thermo species name being used for the HBI corrected radical in species generation
+        solute_data.label = ''
+
+        return solute_data
+
     def estimate_radical_solute_data_via_hbi(self, molecule, stable_solute_data_estimator):
         """
-        Estimate the thermodynamics of a radical by saturating it,
+        Estimate the solute data of a radical by saturating it,
         applying the provided stable_solute_data_estimator method on the saturated species,
         then applying hydrogen bond increment corrections for the radical
         site(s).
@@ -1001,7 +1137,75 @@ class SolvationDatabase(object):
                     except KeyError:
                         pass
 
-        # prevents the original thermo species name being used for the HBI corrected radical in species generation
+        # prevents the original species name being used for the HBI corrected radical in species generation
+        solute_data.label = ''
+
+        return solute_data
+
+    def estimate_halogen_solute_data(self, molecule, stable_solute_data_estimator):
+        """
+        Estimate the solute data of a halogenated molecule by substituting halogens with hydrogen atoms,
+        applying the provided stable_solute_data_estimator method on the substituted_struct species,
+        then applying halogen corrections for the halogenated site(s).
+        """
+        if not molecule.has_halogen():
+            raise ValueError("Method only valid for halogenated molecule.")
+
+        substituted_struct = self.substitute_halogen_with_hydrogen(molecule)
+
+        # Get solute data estimate for substituted form of structure
+        if stable_solute_data_estimator == self.get_solute_data_from_library:
+            # Get data from libraries
+            substituted_spec = Species(molecule=[substituted_struct])
+            solute_data_substituted = stable_solute_data_estimator(substituted_spec, library=self.libraries['solute'])
+            if solute_data_substituted:
+                if len(solute_data_substituted) != 3:
+                    raise RuntimeError("solute_data should be a tuple (solute_data, library, entry), "
+                                       "not {0}".format(solute_data_substituted))
+                substituted_label = solute_data_substituted[2].label
+                solute_data_substituted = solute_data_substituted[0]
+                solute_data_substituted.comment += "Solute library: " + substituted_label
+        else:
+            solute_data_substituted = stable_solute_data_estimator(substituted_struct)
+
+        if solute_data_substituted is None:
+            # We couldn't get solute data for the substituted species from libraries.
+            # However, if we were trying group additivity, this could be a problem
+            if stable_solute_data_estimator == self.compute_group_additivity_solute:
+                logging.info("Solute data of saturated {0} of molecule {1} is None.".format(substituted_struct, molecule))
+            return None
+
+        solute_data = solute_data_substituted
+
+        # For each halogenated site, get halogen correction
+        for atom in molecule.atoms:
+            if atom.is_halogen():
+                try:
+                    self._add_group_solute_data(solute_data, self.groups['halogen'], molecule, {'*': atom})
+                except KeyError:
+                    pass
+
+        # Remove all of the long distance interactions of the substituted structure. Then add the long interactions of the halogenated molecule.
+        if substituted_struct.is_cyclic():
+            sssr = substituted_struct.get_smallest_set_of_smallest_rings()
+            for ring in sssr:
+                for atomPair in itertools.permutations(ring, 2):
+                    try:
+                        self._remove_group_solute_data(solute_data, self.groups['longDistanceInteraction_cyclic'],
+                                                       substituted_struct, {'*1': atomPair[0], '*2': atomPair[1]})
+                    except KeyError:
+                        pass
+            sssr = molecule.get_smallest_set_of_smallest_rings()
+            for ring in sssr:
+                for atomPair in itertools.permutations(ring, 2):
+                    try:
+                        self._add_group_solute_data(solute_data, self.groups['longDistanceInteraction_cyclic'],
+                                                    molecule,
+                                                    {'*1': atomPair[0], '*2': atomPair[1]})
+                    except KeyError:
+                        pass
+
+        # prevents the original species name being used for the HBI corrected radical in species generation
         solute_data.label = ''
 
         return solute_data
@@ -1016,9 +1220,10 @@ class SolvationDatabase(object):
         """
 
         assert not molecule.is_radical(), "This method is only for saturated non-radical species."
-        # For thermo estimation we need the atoms to already be sorted because we
+        assert not molecule.has_halogen(), "This method is only for non-halogenated species."
+        # For solute data estimation we need the atoms to already be sorted because we
         # iterate over them; if the order changes during the iteration then we
-        # will probably not visit the right atoms, and so will get the thermo wrong
+        # will probably not visit the right atoms, and so will get the solute data wrong
         molecule.sort_atoms()
 
         # Create the SoluteData object
